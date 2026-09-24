@@ -14,6 +14,7 @@
   --shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px -12px rgba(0, 0, 0, 0.12);
   --shadow-sm: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.05);
   --code-bg: #f1f1ee;
+  --logo: #1e9e4f;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --radius: 14px;
@@ -38,6 +39,7 @@
     --shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 32px -12px rgba(0, 0, 0, 0.6);
     --shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.08);
     --code-bg: #1d1d1b;
+    --logo: #3ddc78;
   }
 }
 
@@ -58,8 +60,8 @@ code, pre { font-family: var(--mono); }
 
 /* ---------- nav ---------- */
 .nav { display: flex; align-items: center; justify-content: space-between; height: 72px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.01em; text-decoration: none; }
-.brand svg { width: 22px; height: 22px; }
+.brand { display: inline-flex; align-items: center; gap: 12px; font-weight: 600; font-size: 17px; letter-spacing: -0.01em; text-decoration: none; }
+.brand svg { width: 34px; height: 34px; overflow: visible; }
 .nav-links { display: flex; gap: 28px; font-size: 14px; }
 .nav-links a { color: var(--muted); text-decoration: none; transition: color 150ms ease; }
 @media (hover: hover) and (pointer: fine) {
@@ -474,6 +476,15 @@ section.dev { padding-top: 24px; }
   0%, 59% { opacity: 0; transform: translateY(2.5%) scale(0.96); }
   63%, 100% { opacity: 1; transform: none; }
 }
+
+/* ---------- background glow (glow.js) ---------- */
+/* Two fixed canvases: the wavy grid and the travelling glow behind the page, and a front layer the glow
+   moves to for its ending over the "More from us" cards. */
+.web { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+.web-front { z-index: 30; }
+/* Covers over the app cards: live mini spreadsheets drawn by glow.js, which shatters them when the glow lands. */
+.shatter { position: absolute; z-index: 5; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-sm); }
+.shatter > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 /* ---------- analytics consent (consent.js) ---------- */
 .consent {

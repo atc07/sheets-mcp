@@ -1,4 +1,4 @@
-// Concept: faint spreadsheet gridlines, rotated 45°, behind the whole page, rippling in slow waves.
+// Homepage background: faint spreadsheet gridlines, rotated 45°, behind the whole page, rippling in slow waves.
 // A glow starts on the logo's sparkle and runs along the gridlines as you scroll, routed through open
 // space where it can. It ends behind the "More from us" app cards, where it bursts into a new background.
 // Drawn on one fixed canvas behind the content; only the visible part of the grid is drawn each frame.
@@ -14,9 +14,8 @@
       this.lineTo(x, y + tl); this.quadraticCurveTo(x, y, x + tl, y);
     };
   }
-  const params = new URLSearchParams(location.search);
-  const showRoute = params.has("route"); // ?route draws the whole route bold, for reviewing it
 
+  if (!document.getElementById("more") || !document.createElement("canvas").getContext) return;
   const canvas = document.createElement("canvas");
   canvas.className = "web";
   canvas.setAttribute("aria-hidden", "true");
@@ -56,7 +55,7 @@
   function contentMap() {
     const bands = new Map(), PAD = 14, sy = scrollY;
     for (const el of document.body.querySelectorAll("*")) {
-      if (el === canvas || el.closest(".concept-flag, script, style")) continue;
+      if (el === canvas || el === front || el.closest("script, style")) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 2 || r.height < 2 || r.height > 1400) continue;
       const cs = getComputedStyle(el);
@@ -158,7 +157,6 @@
       return null;
     };
 
-    window.__zones = { gaps: gaps.map(Math.round), sides: [0, ...gaps].map((g) => Math.round(sideX(g + 1))) };
     // The route ends behind the "More from us" app cards, in the middle, where the glow bursts.
     const apps = document.querySelector("#more .apps")?.getBoundingClientRect();
     burst = apps ? { x: apps.left + apps.width / 2, y: apps.top + scrollY + apps.height * 0.38, top: apps.top + scrollY } : { x: W / 2, y: H - 240, top: H - 400 };
@@ -413,8 +411,7 @@
     const r = cv.cover.getBoundingClientRect();
     cv.visible = r.bottom > 0 && r.top < innerHeight;
     if (!cv.visible && cv.painted) return; // only animate while on screen
-    const fixed = params.get("tt"); // ?tt=4 freezes both sheets at that second of their loop (for screenshots)
-    paintSheet(cv.sc, cv.w, cv.h, fixed !== null ? +fixed : ((ms / 1000 + cv.offset) % 9), cv.scene);
+    paintSheet(cv.sc, cv.w, cv.h, (ms / 1000 + cv.offset) % 9, cv.scene);
     cv.painted = true;
   });
 
@@ -463,7 +460,6 @@
 
   // travel → boom (the explosion plays on its own clock) → done (the glow is gone for good).
   let state = "travel", boomAt = 0, arrivedAt = null, lastMs = null;
-  if (params.has("final")) { state = "done"; covers.forEach(({ cover }) => cover.remove()); } // ?final shows the end state (for screenshots)
   const BOOM_MS = 1500;
   let pos = null, speed = 0;
 
@@ -504,7 +500,6 @@
     }
     let e = state === "boom" ? Math.min(1, (ms - boomAt) / BOOM_MS) : state === "done" ? 1 : 0;
     if (state === "boom" && e >= 1) state = "done";
-    if (params.has("e")) e = +params.get("e"); // ?e=0.5 freezes the explosion at a stage (for screenshots)
     if (state !== "travel") pos = route.length - 1;
     if (pos === null || reduce) pos = target;
     const prev = pos;
@@ -533,8 +528,7 @@
     // The trail fades out with the explosion and is gone afterwards.
     if (e < 1) {
       const fade = 1 - e;
-      if (showRoute) line(from, Math.min(route.length - 1, indexForY(sy + vh + 80)), "rgba(61, 220, 120, 1)", 4);
-      else line(from, i, `rgba(61, 220, 120, ${(dark.matches ? 0.4 : 0.28) * fade})`, 1.4);
+      line(from, i, `rgba(61, 220, 120, ${(dark.matches ? 0.4 : 0.28) * fade})`, 1.4);
       let back = 0, k = i;
       while (k > 0 && back < 40 + Math.min(160, speed * 10)) { back += cum[k] - cum[k - 1]; k--; }
       const chunks = 8, span = i - k;
@@ -604,8 +598,13 @@
     drawDebris(ms, sy);
   }
 
+  // If anything goes wrong mid-way, stop quietly and make sure the cards are never left covered.
+  const bail = () => {
+    covers.forEach((cv) => cv.cover.remove());
+    canvas.remove(); front.remove();
+  };
   const loop = (ms) => {
-    try { draw(ms); paintCovers(ms); } catch (err) { if (!loop.failed) report(`${err.message} (${navigator.userAgent.match(/(Safari|Chrome|Firefox)\/[\d.]+/g)?.join(" ")})`); loop.failed = true; }
+    try { draw(ms); paintCovers(ms); } catch (err) { bail(); return; }
     requestAnimationFrame(loop);
   };
 
@@ -616,7 +615,7 @@
     if (W === lastW && Math.abs(H - lastH) < 4) return;
     // Rebuilding changes the route; keep the glow where it is on the page instead of letting it jump.
     const keepY = pos !== null && route.length ? route[Math.floor(pos)].y : null;
-    lastW = W; lastH = H; build();
+    lastW = W; lastH = H; build(); fitCovers();
     if (keepY !== null) pos = indexForY(keepY);
   };
   readInk();
@@ -627,30 +626,4 @@
   if (reduce) { addEventListener("scroll", () => draw(0), { passive: true }); addEventListener("load", () => draw(0)); draw(0); }
   else requestAnimationFrame(loop);
 
-  // ?y=1200 starts the preview scrolled down; ?selftest records where the glow is headed at five scroll stops.
-  const startAt = +params.get("y");
-  if (startAt) addEventListener("load", () => setTimeout(() => scrollTo(0, startAt), 50));
-  const errors = [];
-  const flag = document.querySelector(".concept-flag");
-  const report = (msg) => { errors.push(msg); if (flag) { flag.textContent = `Concept error: ${msg}`; flag.style.background = "#fde2e1"; flag.style.color = "#8a1c14"; } };
-  addEventListener("error", (ev) => report(String(ev.message)));
-  window.__covers = () => covers.map((cv) => ({ painted: !!cv.painted, visible: cv.visible, w: cv.w, h: cv.h, broken: cv.broken }));
-  if (params.has("selftest")) addEventListener("load", async () => {
-    const out = [], wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const maxS = document.documentElement.scrollHeight - innerHeight;
-    for (const f of [0, 0.25, 0.5, 0.75, 1]) {
-      scrollTo(0, f * maxS); await wait(300);
-      const arrive = arriveAt(innerHeight);
-      const i = indexForY(startY + (Math.min(scrollY, arrive) / arrive) * (endY - startY));
-      out.push({ f, glowYOnScreen: Math.round(place(route[i], 0).y - scrollY), state });
-    }
-    // Largest single jump between neighbouring route points (anything big would show as a jump).
-    let maxGap = 0;
-    for (let k = 1; k < route.length; k++) maxGap = Math.max(maxGap, Math.hypot(route[k].x - route[k - 1].x, route[k].y - route[k - 1].y));
-    const endP = place(route[route.length - 1], 2);
-    out.push({ burstPoint: [Math.round(burst.x), Math.round(burst.y)], routeEnds: [Math.round(endP.x), Math.round(endP.y)], arriveAtScroll: Math.round(arriveAt(innerHeight)), covers: covers.length, maxScroll: document.documentElement.scrollHeight - innerHeight });
-    out.push({ maxGapPx: Math.round(maxGap), startOnLogo: [Math.round(place(route[0], 3).x), Math.round(place(route[0], 3).y)], logo: [Math.round(route[0].x), Math.round(route[0].y)] });
-    out.push({ errors, covers: window.__covers() });
-    const pre = document.createElement("pre"); pre.id = "selftest"; pre.textContent = JSON.stringify(out); document.body.append(pre);
-  });
 })();

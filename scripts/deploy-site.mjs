@@ -14,7 +14,7 @@ for (const f of readdirSync(dir, { recursive: true }).filter((p) => statSync(`${
   const h = createHash("sha256").update(gz).digest("hex");
   files[`/${f}`] = h; blobs[h] = gz;
 }
-const v = await call("POST", `${api}/sites/${site}/versions`, { config: { cleanUrls: true, headers: [{ glob: "/downloads/**", headers: { "Content-Disposition": "attachment" } }] } });
+const v = await call("POST", `${api}/sites/${site}/versions`, { config: { cleanUrls: true, headers: [{ glob: "/downloads/**", headers: { "Content-Disposition": "attachment" } }, { glob: "**/*.html", headers: { "Cache-Control": "no-cache" } }, { glob: "**/*.@(js|css)", headers: { "Cache-Control": "no-cache" } }] } });
 const p = await call("POST", `${api}/${v.name}:populateFiles`, { files });
 for (const h of p.uploadRequiredHashes ?? []) {
   const r = await fetch(`${p.uploadUrl}/${h}`, { method: "POST", headers: { Authorization: H.Authorization, "x-goog-user-project": H["x-goog-user-project"], "Content-Type": "application/octet-stream" }, body: blobs[h] });

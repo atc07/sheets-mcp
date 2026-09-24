@@ -24,6 +24,16 @@
     });
   });
 
+  // ---------- app showcases: only run the CSS loops while on screen ----------
+  const shows = document.querySelectorAll(".show");
+  if (shows.length && "IntersectionObserver" in window) {
+    shows.forEach((s) => s.classList.add("paused"));
+    const showIo = new IntersectionObserver((entries) => {
+      entries.forEach((e) => e.target.classList.toggle("paused", !e.isIntersecting));
+    });
+    shows.forEach((s) => showIo.observe(s));
+  }
+
   // ---------- demo ----------
   const demo = document.getElementById("demo");
   if (!demo || !("animate" in Element.prototype)) return;

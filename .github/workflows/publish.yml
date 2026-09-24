@@ -20,9 +20,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
@@ -44,5 +44,10 @@ jobs:
         if: github.event_name == 'push'
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
 
+      - name: Pack only (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm pack
+
       - name: Publish
-        run: npm publish --access public ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        if: github.event_name == 'push' || !inputs.dry_run
+        run: npm publish --access public

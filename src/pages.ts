@@ -31,9 +31,12 @@ const RW_SHOW = `<div class="show show-rw" role="img" aria-label="Rewrite: an an
 <div class="rw-scene rw-a" aria-hidden="true">${rw("rewrite-win")}${rw("rewrite-after", "rw-after")}${rw("rewrite-panel", "rw-panel")}</div>
 <div class="rw-scene rw-b" aria-hidden="true">${rw("respond-win")}${rw("respond-panel", "rw-panel")}</div></div>`;
 
+// UTM tags so YourTalks and Rewrite analytics can attribute visits to this page.
+const UTM = "utm_source=sheetsmcp&amp;utm_medium=referral&amp;utm_campaign=more_from_us&amp;utm_content=signin_page";
+
 const APPS = [
-  { name: "YourTalks", tag: "iPhone", url: "https://yourtalks.ai/", icon: `${SITE}/yourtalks-icon.png`, show: YT_SHOW, blurb: "Turn any topic into a two-host AI podcast in minutes." },
-  { name: "Rewrite", tag: "Mac", url: "https://rewriteapp.io/", icon: `${SITE}/rewrite-icon.png`, show: RW_SHOW, blurb: "Rewrite, respond and draft in any app, privately." },
+  { name: "YourTalks", tag: "iPhone", url: `https://yourtalks.ai/?${UTM}`, icon: `${SITE}/yourtalks-icon.png`, show: YT_SHOW, blurb: "Turn any topic into a two-host AI podcast in minutes." },
+  { name: "Rewrite", tag: "Mac", url: `https://rewriteapp.io/?${UTM}`, icon: `${SITE}/rewrite-icon.png`, show: RW_SHOW, blurb: "Rewrite, respond and draft in any app, privately." },
 ];
 
 const STYLE = `

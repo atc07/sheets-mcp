@@ -6,6 +6,23 @@
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
+    // Analytics on by default; off until the visitor opts in for EU/EEA/UK (Google applies the region list by IP).
+    gtag('consent', 'default', {
+      analytics_storage: 'granted',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+    });
+    gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+      region: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT',
+               'LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE',
+               'IS','LI','NO','GB']
+    });
+    // Replay a choice made in the consent banner (consent.js) on earlier visits.
+    try {
+      var smc = localStorage.getItem('sm_consent');
+      if (smc === 'granted' || smc === 'denied') gtag('consent', 'update', { analytics_storage: smc });
+    } catch (e) {}
     gtag('js', new Date());
 
     gtag('config', 'G-RBMZFPWV9Z');
@@ -36,6 +53,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script src="/consent.js" defer></script>
 </head>
 <body>
 <header class="wrap nav">

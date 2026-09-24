@@ -6,6 +6,23 @@
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
+    // Analytics on by default; off until the visitor opts in for EU/EEA/UK (Google applies the region list by IP).
+    gtag('consent', 'default', {
+      analytics_storage: 'granted',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+    });
+    gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+      region: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT',
+               'LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE',
+               'IS','LI','NO','GB']
+    });
+    // Replay a choice made in the consent banner (consent.js) on earlier visits.
+    try {
+      var smc = localStorage.getItem('sm_consent');
+      if (smc === 'granted' || smc === 'denied') gtag('consent', 'update', { analytics_storage: smc });
+    } catch (e) {}
     gtag('js', new Date());
 
     gtag('config', 'G-RBMZFPWV9Z');
@@ -36,6 +53,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script src="/consent.js" defer></script>
 </head>
 <body>
 <header class="wrap nav">
@@ -87,7 +105,7 @@
   <p>Sheets MCP's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
 
   <h2>This website</h2>
-  <p>The sheetsmcp.io website uses Google Analytics, which sets cookies to measure visits, such as which pages are viewed and how visitors arrived. This covers the website only: the app itself sends no analytics, and no Google user data or spreadsheet content from the app is ever shared with Google Analytics. You can opt out with the <a href="https://tools.google.com/dlpage/gaoptout">Google Analytics opt-out browser add-on</a>. See <a href="https://policies.google.com/technologies/partner-sites">how Google uses information from sites that use its services</a>.</p>
+  <p>The sheetsmcp.io website uses Google Analytics, which sets cookies to measure visits, such as which pages are viewed and how visitors arrived. Visitors in the EU, EEA and UK are asked first, and no analytics cookie is set unless they allow it; you can <a href="#" data-consent-reset>change your choice</a> at any time. This covers the website only: the app itself sends no analytics, and no Google user data or spreadsheet content from the app is ever shared with Google Analytics. You can opt out with the <a href="https://tools.google.com/dlpage/gaoptout">Google Analytics opt-out browser add-on</a>. See <a href="https://policies.google.com/technologies/partner-sites">how Google uses information from sites that use its services</a>.</p>
 
   <h2>Revoking access and deleting data</h2>
   <p>You can revoke the app's access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. To delete locally stored credentials, delete the <code>~/.sheets-mcp/token.json</code> file on your computer. Because we store none of your data, there is nothing else to delete.</p>

@@ -6,6 +6,23 @@
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
+    // Analytics on by default; off until the visitor opts in for EU/EEA/UK (Google applies the region list by IP).
+    gtag('consent', 'default', {
+      analytics_storage: 'granted',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+    });
+    gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+      region: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT',
+               'LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE',
+               'IS','LI','NO','GB']
+    });
+    // Replay a choice made in the consent banner (consent.js) on earlier visits.
+    try {
+      var smc = localStorage.getItem('sm_consent');
+      if (smc === 'granted' || smc === 'denied') gtag('consent', 'update', { analytics_storage: smc });
+    } catch (e) {}
     gtag('js', new Date());
 
     gtag('config', 'G-RBMZFPWV9Z');
@@ -36,6 +53,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script src="/consent.js" defer></script>
   <script src="/demo.js" defer></script>
   <script src="/counter.js" defer></script>
 </head>
@@ -370,7 +388,7 @@
         <h2>Other apps from the makers of Sheets MCP.</h2>
       </div>
       <div class="apps">
-        <a class="app-card" href="https://yourtalks.ai/" target="_blank" rel="noopener">
+        <a class="app-card" href="https://yourtalks.ai/?utm_source=sheetsmcp&amp;utm_medium=referral&amp;utm_campaign=more_from_us&amp;utm_content=website" target="_blank" rel="noopener">
           <div class="app-shot show show-yt" role="img" aria-label="YourTalks: type a topic, it researches and writes a two-host episode, then plays it with sources and a live transcript">
             <div class="yt-copy" aria-hidden="true">
               <div class="yt-caps">
@@ -399,7 +417,7 @@
             </div>
           </div>
         </a>
-        <a class="app-card" href="https://rewriteapp.io/" target="_blank" rel="noopener">
+        <a class="app-card" href="https://rewriteapp.io/?utm_source=sheetsmcp&amp;utm_medium=referral&amp;utm_campaign=more_from_us&amp;utm_content=website" target="_blank" rel="noopener">
           <div class="app-shot show show-rw" role="img" aria-label="Rewrite: an angry email draft is rewritten into a calm one and inserted in place, then a reply is drafted to a question in another email">
             <div class="rw-scene rw-a" aria-hidden="true">
               <img src="/apps/rw-rewrite-win.webp" width="1360" height="714" alt="" loading="lazy" decoding="async">

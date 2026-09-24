@@ -1,6 +1,6 @@
 {
   "name": "@sheetsmcp/server",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Let Claude read, edit, format and chart your Google Sheets (MCP server).",
   "scripts": {
     "build": "tsc",

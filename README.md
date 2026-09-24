@@ -38,6 +38,8 @@ If your company's Google Workspace blocks the sign-in, your Workspace admin can 
 
 ## Try asking
 
+In Claude Desktop, click **+** and choose **Get started with Google Sheets** for a quick tour. When more than one Google account is connected, Claude asks which account to use before creating a spreadsheet, or when a sheet can be opened by more than one of your accounts.
+
 - "Summarize this sheet: <link>"
 - "Add a Profit column that subtracts Cost from Revenue, and format it as currency"
 - "Chart spending by month in this sheet: <link>"

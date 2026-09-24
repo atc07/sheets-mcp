@@ -12,7 +12,7 @@ async function t(name, args, check, expectError = false) {
   console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : "\n   " + text.slice(0, 400)}`);
   return data;
 }
-const { spreadsheet_id: id, url } = await t("create_spreadsheet", { title: "Sheets MCP test (safe to delete)", sheet_names: ["Sales"] }, d => d.spreadsheet_id);
+const { spreadsheet_id: id, url } = await t("create_spreadsheet", { title: "Sheets MCP test (safe to delete)", sheet_names: ["Sales"], account: "collectivetheory" }, d => d.spreadsheet_id);
 await t("write_range", { spreadsheet: id, range: "Sales!A1", values: [["Month","Revenue","Cost","Profit"],["Jan",1200,800,"=B2-C2"],["Feb",1500,900,"=B3-C3"],["Mar",1800,950,"=B4-C4"],["Total","=SUM(B2:B4)","=SUM(C2:C4)","=SUM(D2:D4)"]] },
   d => d.formula_errors.length === 0 && d.computed_values[4][3] === "1850");
 await t("write_range", { spreadsheet: id, range: "Sales!F1", values: [["=A1+#REF!"], ["=1/0"]] }, d => d.formula_errors.length === 2);

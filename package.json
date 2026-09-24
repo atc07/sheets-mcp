@@ -10,6 +10,7 @@
     "deploy:site": "node scripts/deploy-site.mjs \"$(gcloud auth print-access-token)\" site sheets-mcp-k8ajul",
     "accounts": "node dist/index.js accounts",
     "pack:extension": "node scripts/pack-extension.mjs",
+    "render:showcase": "node scripts/render-showcase.mjs",
     "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('oauth-client.json')\""
   },
   "license": "MIT",

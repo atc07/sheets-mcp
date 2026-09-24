@@ -177,10 +177,68 @@ async function verify(id: string, range: string) {
   };
 }
 
+// ---------- account confirmation ----------
+
+async function canOpen(email: string, sheetId: string) {
+  try {
+    const res = await currentAccount.run(email, () =>
+      api().sheets.spreadsheets.get({ spreadsheetId: sheetId, fields: "properties.title" }),
+    );
+    return res.data.properties?.title ?? "";
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * With several accounts connected and no `account` given, returns a message asking Claude to
+ * confirm the account with the user: always for new spreadsheets, and for an existing sheet the
+ * first time it's used if more than one account can open it. Returns undefined to proceed.
+ */
+async function needsAccountChoice(tool: string, sheetId: string | undefined, all: string[], fallback: string) {
+  const confirm = (choices: string[], what: string) =>
+    `Account confirmation needed before ${what}. Ask the user which Google account to use: ${choices.join(", ")}` +
+    `${choices.includes(fallback) ? ` (default: ${fallback})` : ""}. Then call ${tool} again with \`account\` set to their choice.`;
+  if (tool === "create_spreadsheet") return confirm(all, "creating a spreadsheet");
+  if (!sheetId || accountForSpreadsheet.has(sheetId)) return undefined;
+  const results = await Promise.all(all.map(async (email) => ({ email, title: await canOpen(email, sheetId) })));
+  const able = results.filter((r) => r.title !== undefined);
+  if (able.length === 1) accountForSpreadsheet.set(sheetId, able[0].email);
+  if (able.length <= 1) return undefined; // nothing to choose (or no access: the normal error explains)
+  return confirm(able.map((r) => r.email), `working on "${able[0].title}", which more than one connected account can open`);
+}
+
 // ---------- server ----------
 
 export function createServer() {
-  const server = new McpServer({ name: "google-sheets", version: "1.0.0" });
+  const server = new McpServer(
+    { name: "google-sheets", version: "1.0.0" },
+    {
+      instructions:
+        "Sheets MCP lets you read and edit the user's Google Sheets. " +
+        "The first time the user brings up spreadsheets in a conversation, briefly offer what you can do (summarize a sheet, add columns and formulas, clean up formatting, sort and filter, add dropdowns, build charts, create new spreadsheets) and ask them to paste a link to the sheet. " +
+        "When several Google accounts are connected, some tools reply that the account must be confirmed: ask the user which account to use, then call the tool again with `account` set to their choice. Never pick an account for them.",
+    },
+  );
+
+  server.registerPrompt(
+    "get_started",
+    { title: "Get started with Google Sheets", description: "What Sheets MCP can do, and which Google accounts are connected" },
+    () => ({
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text:
+              "I just set up Sheets MCP. Welcome me in one short sentence, then check which Google accounts are connected (google_accounts, action \"list\"; if none, help me sign in). " +
+              "Show a short bulleted list of things you can do in Google Sheets, with a one-line example request for each: summarize a sheet, add columns and formulas, clean up formatting, sort and filter, add dropdowns, build a chart, create a new spreadsheet. " +
+              "Finish by asking which sheet I'd like to work on, and say I can paste its link.",
+          },
+        },
+      ],
+    }),
+  );
 
   const accountArg = z
     .string()
@@ -210,6 +268,10 @@ export function createServer() {
         let result: unknown;
         let usedAccount: string | undefined;
         const sheetId = typeof (args as any).spreadsheet === "string" ? spreadsheetIdFrom((args as any).spreadsheet) : undefined;
+        if (!args.account && all.length > 1) {
+          const ask = await needsAccountChoice(name, sheetId, all, fallback);
+          if (ask) return { content: [{ type: "text" as const, text: ask }] };
+        }
         const known = sheetId && accountForSpreadsheet.get(sheetId);
         const candidates = args.account
           ? [resolveAccount(args.account)]

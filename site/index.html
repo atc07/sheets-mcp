@@ -55,6 +55,7 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/consent.js" defer></script>
   <script src="/demo.js" defer></script>
+  <script src="/hero.js" defer></script>
   <script src="/counter.js" defer></script>
 </head>
 <body>
@@ -80,107 +81,74 @@
 
 <main>
   <div class="wrap hero">
-    <div>
-      <div class="eyebrow"><span class="dot"></span>For the Claude desktop app on Mac and Windows</div>
-      <h1>Claude, working in your Google&nbsp;Sheets.</h1>
-      <p class="lede">Ask for a new column, a cleaner layout or a chart, and Claude makes the change right in your spreadsheet. No formulas to remember, no copying and pasting.</p>
-      <div class="cta">
+    <div class="eyebrow"><span class="dot"></span>Works in Claude Desktop (Chat and Code) and Claude Code in your terminal or IDE</div>
+    <h1>Ask Claude. Watch your Google Sheet&nbsp;change.</h1>
+    <p class="lede">Ask for a new column, a cleaner layout or a chart, and Claude makes the change right in your spreadsheet. No formulas to remember, no copying and pasting.</p>
+    <div class="cta">
         <a class="btn btn-primary" href="/downloads/sheets-mcp.mcpb" download>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
           Download for Claude Desktop
         </a>
-        <a class="btn btn-ghost" href="#install">How to install</a>
-      </div>
-      <p class="cta-note">Free. You'll need the Claude desktop app and a Google account.</p>
+        <a class="btn btn-ghost" href="#developers">Set up Claude Code</a>
+    </div>
+    <p class="cta-note">Free. You'll need Claude Desktop or Claude Code, and a Google account.</p>
       <p class="dl-stat" hidden aria-live="polite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><b data-downloads></b> <span data-downloads-label>downloads</span></p>
+
+    <div class="surfaces" role="group" aria-label="Show the demo in">
+      <button type="button" data-mode="chat" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>Claude Desktop</button>
+      <button type="button" data-mode="code" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"/></svg>Claude Code</button>
     </div>
 
-    <figure class="demo" id="demo" aria-label="Example: Claude adds a profit column, formats it as currency and charts revenue by month." style="margin:0">
-      <div class="prompt">
-        <div class="avatar" aria-hidden="true">You</div>
-        <p data-type>Add a profit column with totals, format everything as currency, and chart revenue by month.</p>
-      </div>
-
-      <div class="status-row">
-        <span class="status" aria-hidden="true" data-at="1150"><code>Writing</code>Profit column and totals</span>
-        <span class="status" aria-hidden="true" data-at="2600"><code>Formatting</code>Currency and header row</span>
-        <span class="status" aria-hidden="true" data-at="3300"><code>Charting</code>Revenue by month</span>
-        <span class="status" aria-hidden="true" data-at="4300"><span class="check"><svg viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.5l4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Done · no formula errors</span>
-        <button class="replay" type="button" data-in="4500" hidden>
-          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6a4 4 0 1 0 1.2-2.85M2 1.5v2.2h2.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Replay
-        </button>
-      </div>
-
-      <div class="sheet">
-        <div class="sheet-bar">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5V20"/></svg>
-          <span>Q3 Budget</span><span>Sales</span>
+    <figure class="split" id="split" aria-label="Example: in Claude, you ask it to add a profit column with totals, format everything as currency and chart revenue by month. Claude makes each change in the Google Sheet shown next to it.">
+      <div class="pane" id="claudePane" aria-hidden="true"></div>
+      <div class="pane" aria-hidden="true">
+        <div class="pane-bar">
+          <span class="lights"><i></i><i></i><i></i></span>
+          <span class="sheet-file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5V20"/></svg>Q3 Budget</span>
+          <span class="presence"><span class="you">Y</span><span class="cl" id="clAvatar">C</span></span>
         </div>
-        <table class="grid">
-          <colgroup><col class="rn-col"><col class="a-col"><col><col><col></colgroup>
-          <thead><tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead>
-          <tbody>
-            <tr class="head">
-              <td class="rn">1</td>
-              <td><span class="tint" data-in="2700"></span><span class="cell"><span class="v">Month</span></span></td>
-              <td><span class="tint" data-in="2720"></span><span class="cell"><span class="v">Revenue</span></span></td>
-              <td><span class="tint" data-in="2740"></span><span class="cell"><span class="v">Cost</span></span></td>
-              <td><span class="tint" data-in="2760"></span><span class="cell" data-in="1400"><span class="v">Profit</span></span></td>
-            </tr>
-            <tr>
-              <td class="rn">2</td>
-              <td><span class="cell"><span class="v">Jan</span></span></td>
-              <td><span class="cell"><span class="v">12400</span><span class="v" data-at="2800">$12,400</span></span></td>
-              <td><span class="cell"><span class="v">8100</span><span class="v" data-at="2820">$8,100</span></span></td>
-              <td><span class="cell" data-in="1460"><span class="v f">=B2-C2</span><span class="v" data-at="2300">4300</span><span class="v" data-at="2840">$4,300</span></span></td>
-            </tr>
-            <tr>
-              <td class="rn">3</td>
-              <td><span class="cell"><span class="v">Feb</span></span></td>
-              <td><span class="cell"><span class="v">15200</span><span class="v" data-at="2840">$15,200</span></span></td>
-              <td><span class="cell"><span class="v">9000</span><span class="v" data-at="2860">$9,000</span></span></td>
-              <td><span class="cell" data-in="1520"><span class="v f">=B3-C3</span><span class="v" data-at="2340">6200</span><span class="v" data-at="2880">$6,200</span></span></td>
-            </tr>
-            <tr>
-              <td class="rn">4</td>
-              <td><span class="cell"><span class="v">Mar</span></span></td>
-              <td><span class="cell"><span class="v">18900</span><span class="v" data-at="2880">$18,900</span></span></td>
-              <td><span class="cell"><span class="v">9700</span><span class="v" data-at="2900">$9,700</span></span></td>
-              <td><span class="cell" data-in="1580"><span class="v f">=B4-C4</span><span class="v" data-at="2380">9200</span><span class="v" data-at="2920">$9,200</span></span></td>
-            </tr>
-            <tr class="total">
-              <td class="rn">5</td>
-              <td><span class="cell" data-in="1700"><span class="v">Total</span></span></td>
-              <td><span class="cell" data-in="1750"><span class="v f">=SUM(B2:B4)</span><span class="v" data-at="2420">46500</span><span class="v" data-at="2920">$46,500</span></span></td>
-              <td><span class="cell" data-in="1800"><span class="v f">=SUM(C2:C4)</span><span class="v" data-at="2440">26800</span><span class="v" data-at="2940">$26,800</span></span></td>
-              <td><span class="cell" data-in="1850"><span class="v f">=SUM(D2:D4)</span><span class="v" data-at="2460">19700</span><span class="v" data-at="2960">$19,700</span></span></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="chart" data-in="3400" data-pop aria-hidden="true">
-        <div class="chart-title">Revenue by month</div>
-        <div class="bars">
-          <div class="bar" data-grow="3550" style="height:66%"></div>
-          <div class="bar" data-grow="3630" style="height:80%"></div>
-          <div class="bar" data-grow="3710" style="height:100%"></div>
+        <div class="fbar"><span class="ref" id="fref">A1</span><span class="fx">fx</span><span class="val" id="fval">Month</span></div>
+        <div class="gridwrap" id="gridwrap">
+          <table class="ss" id="ss">
+            <colgroup><col style="width:34px"><col style="width:17%"><col><col><col><col style="width:16%"></colgroup>
+            <thead><tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="cl-cursor" id="clCursor"><span>Claude</span></div>
+          <div class="ss-chart" id="ssChart">
+            <h4>Revenue by month</h4>
+            <div class="ss-bars"><i style="--h:66%"></i><i style="--h:80%"></i><i style="--h:100%"></i></div>
+            <div class="ss-xl"><span>Jan</span><span>Feb</span><span>Mar</span></div>
+          </div>
         </div>
-        <div class="bar-labels"><span>Jan</span><span>Feb</span><span>Mar</span></div>
       </div>
-
     </figure>
+    <div class="under"><span>Claude makes every change on the right through Sheets MCP.</span>
+      <button class="replay" id="replay" type="button"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6a4 4 0 1 0 1.2-2.85M2 1.5v2.2h2.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
   </div>
 
   <section id="install">
     <div class="wrap">
-      <div class="section-head">
-        <div class="kicker">Install</div>
-        <h2>Set up in about two minutes.</h2>
-        <p>No technical setup. If you can install an app, you can do this.</p>
-      </div>
+      <div class="install-layout">
+      <aside class="install-aside">
+        <div class="section-head">
+          <div class="kicker">Install</div>
+          <h2>Set up in about two minutes.</h2>
+          <p>No technical setup. If you can install an app, you can do this.</p>
+        </div>
+        <h3 class="need-title">You'll need</h3>
+        <ul class="needs">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Claude Desktop for Mac or Windows</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>A Google account</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>About two minutes</li>
+        </ul>
+        <a class="alt-route" href="#developers">
+          <span><b>Using Claude Code in a terminal or IDE?</b>Skip the download: run one command, then sign in with Google once.</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </aside>
 
+      <div class="install-main">
       <ol class="install">
         <li class="install-step">
           <div class="step-num" aria-hidden="true">1</div>
@@ -195,7 +163,7 @@
           <div class="step-num" aria-hidden="true">2</div>
           <div class="step-body">
             <h3>Install Sheets MCP</h3>
-            <p>Download the file below, then double-click it in your Downloads folder. Claude Desktop opens and asks to install it. Click <b>Install</b>.</p>
+            <p>Download the file below, then double-click it in your Downloads folder. Claude Desktop opens and asks to install it. Click <b>Install</b>. It works in both the Chat and Code tabs.</p>
             <a class="btn btn-primary btn-sm" href="/downloads/sheets-mcp.mcpb" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> Download Sheets MCP</a>
             <p class="hint">Double-clicking didn't work? In Claude Desktop, open <b>Settings → Extensions → Advanced settings → Install Extension…</b> and choose <code>sheets-mcp.mcpb</code> from your Downloads folder.</p>
           </div>
@@ -235,6 +203,8 @@
           <li>“Create a new budget spreadsheet”</li>
           <li>“Undo that”</li>
         </ul>
+      </div>
+      </div>
       </div>
     </div>
   </section>
@@ -355,7 +325,7 @@
         </details>
         <details>
           <summary>Does it work on my phone or on claude.ai?</summary>
-          <p>Not yet. Sheets MCP works in the Claude desktop app on Mac and Windows, and in Claude Code.</p>
+          <p>Not yet. Sheets MCP works in the Claude desktop app on Mac and Windows, in both Chat and Code, and in Claude Code in your terminal or IDE (VS Code, JetBrains).</p>
         </details>
         <details>
           <summary>I don't see the Install option in Claude Desktop.</summary>
@@ -373,8 +343,8 @@
     <div class="wrap">
       <div class="dev-card">
         <div>
-          <h3>Use Claude Code?</h3>
-          <p>Install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer, then run this once in your terminal. The Google sign-in opens the first time Claude uses it.</p>
+          <h3>Use Claude Code in a terminal or IDE?</h3>
+          <p>Install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer, then run this once in your terminal. (In Claude Desktop's Code tab, the extension above already covers you.) The Google sign-in opens the first time Claude uses it.</p>
         </div>
         <div class="code"><pre><code>claude mcp add --scope user google-sheets -- npx -y @sheetsmcp/server</code></pre><button class="copy" type="button" aria-label="Copy command"><svg class="idle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg><svg class="done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg></button></div>
       </div>

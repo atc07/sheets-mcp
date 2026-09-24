@@ -12,6 +12,8 @@ Website: https://sheetsmcp.io
 2. Download **[sheets-mcp.mcpb](https://sheetsmcp.io/downloads/sheets-mcp.mcpb)**.
 3. Double-click the file, then click **Install** in Claude Desktop.
 
+The extension works in both the Chat and Code tabs. For long, multi-step jobs, the Code tab is the more dependable choice: it runs everything on your computer.
+
 ### Claude Code
 
 Requires [Node.js](https://nodejs.org) 18 or newer. Run:

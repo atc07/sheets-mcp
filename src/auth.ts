@@ -51,7 +51,8 @@ function writePrivate(path: string, data: unknown) {
   writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 });
 }
 
-function readSettings(): { defaultAccount?: string } {
+/** settings.json: `defaultAccount`, and optionally `browser` (app name, e.g. "Google Chrome") for the sign-in page. */
+function readSettings(): { defaultAccount?: string; browser?: string } {
   return existsSync(SETTINGS_PATH) ? JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) : {};
 }
 
@@ -124,8 +125,14 @@ export function getAuthClient(email: string): OAuth2Client {
 
 function openBrowser(url: string) {
   if (process.env.SHEETS_MCP_NO_BROWSER) return; // tests
+  // Optional: open sign-in in a specific browser without changing the system default.
+  const browser = process.env.SHEETS_MCP_BROWSER ?? readSettings().browser;
   const [cmd, args] =
-    process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+    process.platform === "darwin"
+      ? ["open", browser ? ["-a", browser, url] : [url]]
+      : process.platform === "win32"
+        ? ["cmd", ["/c", "start", "", browser ?? "", url].filter(Boolean)]
+        : [browser ?? "xdg-open", [url]];
   spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).on("error", () => {});
 }
 

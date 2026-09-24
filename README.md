@@ -32,6 +32,8 @@ The first time Claude uses Google Sheets, a Google sign-in page opens in your br
 
 To use more than one Google account, ask Claude to *"sign in to another Google account"*. When you paste a sheet link, Sheets MCP uses whichever of your accounts can open it.
 
+To open the Google sign-in in a particular browser without changing your default, add `"browser": "Google Chrome"` (or another app name) to `~/.sheets-mcp/settings.json`.
+
 If your company's Google Workspace blocks the sign-in, your Workspace admin can allow Sheets MCP under **Admin console → Security → API controls**.
 
 ## Try asking

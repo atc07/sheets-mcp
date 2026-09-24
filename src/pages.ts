@@ -55,8 +55,8 @@ main { width:100%; max-width:900px; }
   .cols > .card { display:block; }
   .cols > .more { display:block; margin-top:28px; }
 }
-.brand { display:flex; align-items:center; justify-content:center; gap:9px; font-weight:600; font-size:15px; letter-spacing:-.01em; margin-bottom:22px; }
-.brand svg { width:22px; height:22px; }
+.brand { display:flex; align-items:center; justify-content:center; gap:12px; font-weight:650; font-size:21px; letter-spacing:-.02em; margin-bottom:30px; }
+.brand svg { width:44px; height:44px; filter:drop-shadow(0 4px 10px rgba(22,39,28,.18)); }
 .card { background:var(--surface); border-radius:20px; box-shadow:var(--shadow); padding:36px 32px 30px; text-align:center;
   animation:enter 500ms var(--ease-out) both; }
 .badge { width:64px; height:64px; margin:0 auto 20px; border-radius:50%; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent); }
@@ -141,9 +141,11 @@ function layout(title: string, body: string) {
   ).join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Sheets MCP</title><style>${STYLE}</style></head><body><main>
-<div class="brand">${LOGO}Sheets MCP</div>
 <div class="cols">
+<div class="card">
+  <div class="brand">${LOGO}Sheets MCP</div>
 ${body}
+</div>
 <section class="more"><h2>More from the makers of Sheets MCP</h2><div class="apps">${apps}</div></section>
 </div>
 <footer><a href="https://sheetsmcp.io" target="_blank" rel="noopener">sheetsmcp.io</a> · <a href="https://sheetsmcp.io/privacy" target="_blank" rel="noopener">Privacy</a></footer>
@@ -153,8 +155,7 @@ ${body}
 export function signedInPage(email: string) {
   return layout(
     "You're signed in",
-    `<div class="card">
-  <div class="badge">${CHECK}</div>
+    `  <div class="badge">${CHECK}</div>
   <h1>You're signed in</h1>
   <p class="lede">Sheets MCP can now work in your Google Sheets.</p>
   <div class="acct">${esc(email)}</div>
@@ -163,22 +164,19 @@ export function signedInPage(email: string) {
     <p>Go back to Claude and say <b>“I'm signed in”</b>. It will pick up where it left off. Or try:</p>
     <ul class="chips"><li>Summarize this sheet: <i>link</i></li><li>Add a totals row</li><li>Chart sales by month</li></ul>
   </div>
-  <p class="close">You can close this tab.</p>
-</div>`,
+  <p class="close">You can close this tab.</p>`,
   );
 }
 
 export function signInFailedPage(message: string) {
   return layout(
     "Sign-in didn't finish",
-    `<div class="card">
-  <div class="badge bad">${CROSS}</div>
+    `  <div class="badge bad">${CROSS}</div>
   <h1>Sign-in didn't finish</h1>
   <p class="lede">${esc(message)}</p>
   <div class="next">
     <h2>Try again</h2>
     <p>Close this tab, go back to Claude and ask it to <b>“sign in to Google Sheets”</b>. A fresh sign-in page will open.</p>
-  </div>
-</div>`,
+  </div>`,
   );
 }

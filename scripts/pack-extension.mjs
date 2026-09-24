@@ -27,7 +27,7 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(`${out}/server`, { recursive: true });
 cpSync(`${root}dist`, `${out}/server`, { recursive: true });
 cpSync(`${root}oauth-client.json`, `${out}/oauth-client.json`);
-cpSync(`${root}brand/logo-dark-512.png`, `${out}/icon.png`);
+cpSync(`${root}brand/logo-512.png`, `${out}/icon.png`);
 writeFileSync(
   `${out}/package.json`,
   JSON.stringify({ name: pkg.name, version: pkg.version, private: true, type: "module", dependencies: pkg.dependencies }, null, 2),

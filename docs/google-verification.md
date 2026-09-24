@@ -8,7 +8,7 @@ Project: `sheets-mcp-k8ajul` · Console: Google Auth Platform → **Verification
    - Remove `.../auth/drive.metadata.readonly`
    - Keep `.../auth/spreadsheets` (sensitive)
    - Add `openid` and `.../auth/userinfo.email` (non-sensitive)
-2. **Branding**: app name "Sheets MCP"; home page `https://sheetsmcp.io`; privacy policy `https://sheetsmcp.io/privacy`; authorized domain `sheetsmcp.io` (already verified in Search Console). Optional: upload `brand/logo-dark-120.png` now, since you're verifying anyway.
+2. **Branding**: app name "Sheets MCP"; home page `https://sheetsmcp.io`; privacy policy `https://sheetsmcp.io/privacy`; authorized domain `sheetsmcp.io` (already verified in Search Console). Optional: upload `brand/logo-120.png` now, since you're verifying anyway.
 3. Release 1.1.0 (no Drive scope) is live on sheetsmcp.io and npm, so the app Google tests matches this submission.
 
 ## Scope justification (paste into the form)

@@ -1,0 +1,48 @@
+# Publishes @sheetsmcp/server to npm when a version tag (e.g. v1.2.0) is pushed.
+# Uses npm trusted publishing (OIDC), so no npm token or login is needed.
+name: Publish to npm
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and pack only (don't publish)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1+.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      - name: Add the Google OAuth client that users sign in with
+        env:
+          OAUTH_CLIENT_JSON: ${{ secrets.OAUTH_CLIENT_JSON }}
+        run: |
+          test -n "$OAUTH_CLIENT_JSON" || { echo "Missing OAUTH_CLIENT_JSON secret"; exit 1; }
+          printf '%s' "$OAUTH_CLIENT_JSON" > oauth-client.json
+          node -e "const j=require('./oauth-client.json'); if(!(j.installed||j.web)?.client_id) process.exit(1)"
+
+      - name: Tag must match package.json version
+        if: github.event_name == 'push'
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      - name: Publish
+        run: npm publish --access public ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}

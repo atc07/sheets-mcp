@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&display=block" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background: #fafaf8; color: #171716;
+    font-family: "Inter", sans-serif; font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+  }
+  /* Faint spreadsheet grid, fading out toward the text side. */
+  .grid-bg {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(0,0,0,.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(0,0,0,.055) 1px, transparent 1px);
+    background-size: 84px 42px;
+    -webkit-mask-image: linear-gradient(to right, transparent 30%, #000 75%);
+  }
+  .left { position: absolute; left: 80px; top: 72px; bottom: 72px; width: 560px; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 16px; font-size: 30px; font-weight: 600; letter-spacing: -0.015em; }
+  .brand svg { width: 56px; height: 56px; }
+  h1 { margin-top: 54px; font-size: 70px; line-height: 1.02; letter-spacing: -0.04em; font-weight: 650; }
+  p { margin-top: 26px; font-size: 27px; line-height: 1.4; color: #5f5f5b; letter-spacing: -0.01em; }
+  .url { margin-top: auto; font-size: 24px; font-weight: 500; color: #188038; }
+
+  .card {
+    position: absolute; right: 64px; top: 92px; width: 440px;
+    background: #fff; border-radius: 22px; padding: 22px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04), 0 30px 60px -20px rgba(0,0,0,.18);
+  }
+  .bar { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; margin-bottom: 14px; }
+  .bar span { margin-left: auto; font-weight: 500; color: #a3a39e; }
+  .bar svg { width: 20px; height: 20px; color: #8a8a85; }
+  table { width: 100%; border-collapse: collapse; font-size: 19px; font-variant-numeric: tabular-nums; }
+  td { height: 48px; padding: 0 14px; box-shadow: inset 0 -1px 0 rgba(0,0,0,.07); text-align: right; }
+  td:first-child { text-align: left; }
+  tr.head td { font-weight: 600; background: #e6f4ea; box-shadow: inset 0 -2px 0 #188038; }
+  tr.total td { font-weight: 650; box-shadow: none; }
+  .sel-wrap { position: relative; }
+  /* Selection around the Profit column, with a fill handle. */
+  .sel { position: absolute; border: 4px solid #188038; border-radius: 6px; background: rgba(24,128,56,.06); pointer-events: none; }
+  .handle { position: absolute; width: 16px; height: 16px; border-radius: 4px; background: #188038; box-shadow: 0 0 0 3px #fff; }
+  .chart { display: flex; align-items: flex-end; gap: 16px; height: 92px; margin-top: 18px; padding: 0 6px; box-shadow: inset 0 -1px 0 rgba(0,0,0,.08); }
+  .chart div { flex: 1; background: #188038; border-radius: 6px 6px 0 0; opacity: .9; }
+</style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+
+  <div class="left">
+    <div class="brand">
+      <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#0f1712"/><path d="M6 3v18M12 3v18M18 3v18M3 6h18M3 12h18M3 18h18" stroke="#fff" stroke-opacity=".13" stroke-width=".8"/><rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="#34c26a" fill-opacity=".16" stroke="#34c26a" stroke-width="2"/><rect x="15.1" y="15.1" width="4.8" height="4.8" rx="1.1" fill="#34c26a" stroke="#0f1712" stroke-width="1.3"/></svg>
+      Sheets MCP
+    </div>
+    <h1>Claude, working in your Google&nbsp;Sheets.</h1>
+    <p>Read, write, format and chart spreadsheets, just by asking.</p>
+    <div class="url">sheetsmcp.io</div>
+  </div>
+
+  <div class="card">
+    <div class="bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5V20"/></svg>
+      Q3 Budget<span>Sales</span>
+    </div>
+    <div class="sel-wrap">
+      <table>
+        <tr class="head"><td>Month</td><td>Revenue</td><td>Profit</td></tr>
+        <tr><td>Jan</td><td>$12,400</td><td>$4,300</td></tr>
+        <tr><td>Feb</td><td>$15,200</td><td>$6,200</td></tr>
+        <tr><td>Mar</td><td>$18,900</td><td>$9,200</td></tr>
+        <tr class="total"><td>Total</td><td>$46,500</td><td>$19,700</td></tr>
+      </table>
+      <div class="sel" id="sel"></div>
+      <div class="handle" id="handle"></div>
+    </div>
+    <div class="chart"><div style="height:66%"></div><div style="height:80%"></div><div style="height:100%"></div></div>
+  </div>
+
+  <script>
+    // Position the selection over the Profit cells (rows 2-5, column 3).
+    const wrap = document.querySelector(".sel-wrap").getBoundingClientRect();
+    const first = document.querySelector("tr:nth-child(2) td:nth-child(3)").getBoundingClientRect();
+    const last = document.querySelector("tr.total td:nth-child(3)").getBoundingClientRect();
+    const sel = document.getElementById("sel"), h = document.getElementById("handle");
+    Object.assign(sel.style, { left: first.left - wrap.left + "px", top: first.top - wrap.top + "px", width: first.width + "px", height: last.bottom - first.top + "px" });
+    Object.assign(h.style, { left: last.right - wrap.left - 10 + "px", top: last.bottom - wrap.top - 10 + "px" });
+  </script>
+</body>
+</html>

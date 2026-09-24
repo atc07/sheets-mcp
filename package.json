@@ -1,0 +1,46 @@
+{
+  "name": "@sheetsmcp/server",
+  "version": "1.1.0",
+  "description": "Let Claude read, edit, format and chart your Google Sheets (MCP server).",
+  "scripts": {
+    "build": "tsc",
+    "auth": "node dist/index.js auth",
+    "start": "node dist/index.js",
+    "test:e2e": "node scripts/e2e.mjs",
+    "deploy:site": "node scripts/deploy-site.mjs \"$(gcloud auth print-access-token)\" site sheets-mcp-k8ajul",
+    "accounts": "node dist/index.js accounts",
+    "pack:extension": "node scripts/pack-extension.mjs",
+    "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('oauth-client.json')\""
+  },
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@googleapis/sheets": "^18.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "google-auth-library": "^11.1.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "^2.1.2",
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  },
+  "bin": {
+    "sheetsmcp": "dist/index.js"
+  },
+  "homepage": "https://sheetsmcp.io",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "google-sheets",
+    "spreadsheets"
+  ],
+  "files": [
+    "dist",
+    "oauth-client.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

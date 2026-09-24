@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+.claude/
+credentials.json
+token.json
+# Google OAuth client shipped in releases; never commit it (CI gets it from a secret)
+oauth-client.json
+# Built by `npm run pack:extension`
+site/downloads/

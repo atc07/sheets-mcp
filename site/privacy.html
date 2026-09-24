@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy · Sheets MCP</title>
+  <meta name="description" content="What Google user data Sheets MCP accesses and how it is handled.">
+  <meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0e0d" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://sheetsmcp.io/privacy">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Sheets MCP">
+  <meta property="og:title" content="Privacy Policy · Sheets MCP">
+  <meta property="og:description" content="What Google user data Sheets MCP accesses and how it is handled.">
+  <meta property="og:url" content="https://sheetsmcp.io/privacy">
+  <meta property="og:image" content="https://sheetsmcp.io/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Sheets MCP: Claude, working in your Google Sheets.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Privacy Policy · Sheets MCP">
+  <meta name="twitter:description" content="What Google user data Sheets MCP accesses and how it is handled.">
+  <meta name="twitter:image" content="https://sheetsmcp.io/og.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="wrap nav">
+  <a class="brand" href="/">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#0f1712"/><path d="M6 3v18M12 3v18M18 3v18M3 6h18M3 12h18M3 18h18" stroke="#fff" stroke-opacity=".13" stroke-width=".8"/><rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="#34c26a" fill-opacity=".16" stroke="#34c26a" stroke-width="2"/><rect x="15.1" y="15.1" width="4.8" height="4.8" rx="1.1" fill="#34c26a" stroke="#0f1712" stroke-width="1.3"/></svg>
+    Sheets MCP
+  </a>
+  <nav class="nav-links">
+    <a href="/#install">Install</a>
+    <a href="/#faq">FAQ</a>
+    <a class="keep" href="/">Home</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <article class="prose">
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: September 24, 2026</p>
+
+  <p>Sheets MCP ("the app") is a tool that runs on your own computer and connects the Claude AI assistant to Google Sheets. This policy explains what Google user data the app accesses and how it is handled.</p>
+
+  <h2>Data the app accesses</h2>
+  <p>With your permission, the app requests these Google OAuth scopes:</p>
+  <ul>
+    <li><code>spreadsheets</code>: to read and edit the contents, formatting and structure of Google Sheets you ask Claude to work on.</li>
+    <li><code>openid</code> and <code>email</code>: to learn which Google account you signed in with, so the app can keep several of your accounts apart. Your email address is stored only on your computer.</li>
+  </ul>
+
+  <h2>How the data is used</h2>
+  <p>Google user data is used only to carry out actions you request through Claude, such as reading a range, writing values or adding a chart. It is not used for advertising, sold, or used to train AI models by the app.</p>
+
+  <h2>Where the data goes</h2>
+  <ul>
+    <li><strong>Your device:</strong> Your OAuth tokens are stored only on your computer (in <code>~/.sheets-mcp</code>, readable only by your user account). An in-memory undo history of recent edits is kept while the app is running and is discarded when it stops.</li>
+    <li><strong>Google:</strong> The app sends requests directly from your computer to Google's APIs.</li>
+    <li><strong>Anthropic (Claude):</strong> Spreadsheet data the app retrieves is returned to the Claude application you are using, as part of your conversation. That data is handled under <a href="https://www.anthropic.com/legal/privacy">Anthropic's Privacy Policy</a> and your Claude account settings.</li>
+    <li><strong>Us:</strong> The app's developers operate no servers that receive, store or log your Google data, tokens or spreadsheet contents.</li>
+  </ul>
+  <p>The app does not share Google user data with any other third parties. It cannot access your other Google Drive files, Gmail or any other Google data.</p>
+
+  <h2>Google API Services User Data Policy</h2>
+  <p>Sheets MCP's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+  <h2>Revoking access and deleting data</h2>
+  <p>You can revoke the app's access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. To delete locally stored credentials, delete the <code>~/.sheets-mcp/token.json</code> file on your computer. Because we store none of your data, there is nothing else to delete.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the updated version will be posted on this page with a new "last updated" date.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy: <a href="mailto:privacy@sheetsmcp.io">privacy@sheetsmcp.io</a></p>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Sheets MCP</span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="mailto:privacy@sheetsmcp.io">Contact</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

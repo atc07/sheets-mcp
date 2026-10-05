@@ -75,7 +75,7 @@
 <main class="wrap">
   <article class="prose">
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: September 24, 2026</p>
+  <p class="updated">Last updated: October 5, 2026</p>
 
   <p>Sheets MCP ("the app") is a tool that runs on your own computer and connects the Claude AI assistant to Google Sheets. This policy explains what Google user data the app accesses and how it is handled.</p>
 
@@ -91,7 +91,7 @@
 
   <h2>Where the data goes</h2>
   <ul>
-    <li><strong>Your device:</strong> Your OAuth tokens are stored only on your computer (in <code>~/.sheets-mcp</code>, readable only by your user account). An in-memory undo history of recent edits is kept while the app is running and is discarded when it stops.</li>
+    <li><strong>Your device:</strong> Your OAuth tokens are stored only on your computer (in <code>~/.sheets-mcp</code>, readable only by your user account). A list of the spreadsheets you have used with the app (their names, links and which of your accounts opened them) is stored on your computer in <code>~/.sheets-mcp/recent.json</code>, so you can ask for a sheet by name. An in-memory undo history of recent edits is kept while the app is running and is discarded when it stops.</li>
     <li><strong>Google:</strong> The app sends requests directly from your computer to Google's APIs.</li>
     <li><strong>Anthropic (Claude):</strong> Spreadsheet data the app retrieves is returned to the Claude application you are using, as part of your conversation. That data is handled under <a href="https://www.anthropic.com/legal/privacy">Anthropic's Privacy Policy</a> and your Claude account settings.</li>
     <li><strong>Us:</strong> The app's developers operate no servers that receive, store or log your Google data, tokens or spreadsheet contents.</li>
@@ -105,7 +105,7 @@
   <p>The sheetsmcp.io website uses Google Analytics, which sets cookies to measure visits, such as which pages are viewed and how visitors arrived. Visitors in the EU, EEA and UK are asked first, and no analytics cookie is set unless they allow it; you can <a href="#" data-consent-reset>change your choice</a> at any time. This covers the website only: the app itself sends no analytics, and no Google user data or spreadsheet content from the app is ever shared with Google Analytics. You can opt out with the <a href="https://tools.google.com/dlpage/gaoptout">Google Analytics opt-out browser add-on</a>. See <a href="https://policies.google.com/technologies/partner-sites">how Google uses information from sites that use its services</a>.</p>
 
   <h2>Revoking access and deleting data</h2>
-  <p>You can revoke the app's access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. To delete locally stored credentials, delete the <code>~/.sheets-mcp/token.json</code> file on your computer. Because we store none of your data, there is nothing else to delete.</p>
+  <p>You can revoke the app's access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. To delete everything the app stores locally (your sign-ins and the list of spreadsheets you've used), delete the <code>~/.sheets-mcp</code> folder on your computer; to clear only the list of spreadsheets, delete <code>~/.sheets-mcp/recent.json</code>. Because we store none of your data, there is nothing else to delete.</p>
 
   <h2>Changes</h2>
   <p>If this policy changes, the updated version will be posted on this page with a new "last updated" date.</p>

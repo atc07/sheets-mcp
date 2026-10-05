@@ -24,7 +24,12 @@ await t("format_range", { spreadsheet: id, range: "Sales!B2:D5", number_format: 
 await t("read_range", { spreadsheet: id, range: "Sales!B2" }, d => d.values[0][0] === "$1,200");
 await t("freeze", { spreadsheet: id, tab: "Sales", rows: 1 });
 await t("add_conditional_format", { spreadsheet: id, range: "Sales!D2:D4", color_scale: { min_color: "#fce8e6", max_color: "#e6f4ea" } });
-await t("add_chart", { spreadsheet: id, data_range: "Sales!A1:B4", chart_type: "COLUMN", title: "Revenue by month" }, d => d.chart_id);
+const chart = await t("add_chart", { spreadsheet: id, data_range: "Sales!A1:B4", chart_type: "COLUMN", title: "Revenue by month" }, d => d.chart_id);
+await t("update_chart", { spreadsheet: id, chart_id: chart.chart_id, title: "Revenue", chart_type: "LINE", width: 480 }, d => d.changed.join() === "title,type,size");
+const extra = await t("add_chart", { spreadsheet: id, data_range: "Sales!A1:B4", chart_type: "PIE" }, d => d.chart_id);
+await t("delete_chart", { spreadsheet: id, chart_id: extra.chart_id }, d => d.deleted_chart === extra.chart_id);
+await t("read_ranges", { spreadsheet: id, ranges: ["Sales!A1:B2", "Sales!D5"] }, d => d.ranges.length === 2 && d.ranges[0].values[0][1] === "Revenue");
+await t("add_pivot_table", { spreadsheet: id, source_range: "Sales!A1:D4", rows: ["Month"], values: [{ column: "Profit" }] }, d => d.tab === "Pivot" && d.preview[0].includes("SUM of Profit"));
 await t("sort_range", { spreadsheet: id, range: "Sales!A1:D4", sort_by: [{ column: "B", ascending: false }] });
 await t("read_range", { spreadsheet: id, range: "Sales!A2:A4" }, d => d.values.map(r => r[0]).join() === "Mar,Feb,Jan");
 await t("set_data_validation", { spreadsheet: id, range: "Sales!E2:E4", type: "dropdown", options: ["On track", "At risk"] });
@@ -32,7 +37,7 @@ await t("append_rows", { spreadsheet: id, range: "Missing", values: [["x"]] }, n
 await t("manage_tab", { spreadsheet: id, action: "add", tab: "Notes" }, d => d.title === "Notes");
 await t("append_rows", { spreadsheet: id, range: "Notes", values: [["Created by the Sheets MCP end-to-end test."]] }, d => d.appended_range);
 await t("resize_columns", { spreadsheet: id, range: "Sales!A:E" });
-const info = await t("get_spreadsheet_info", { spreadsheet: url }, d => d.tabs.length === 2 && d.tabs[0].frozen_rows === 1 && d.tabs[0].charts === 1);
+const info = await t("get_spreadsheet_info", { spreadsheet: url }, d => d.tabs.length === 3 && d.tabs[0].frozen_rows === 1 && d.tabs[0].charts.length === 1 && d.tabs[0].charts[0].type === "LINE");
 console.log(`\n${fails === 0 ? "ALL PASSED" : fails + " FAILED"}\n${url}`);
 await c.close();
 process.exit(fails ? 1 : 0);

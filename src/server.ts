@@ -3,6 +3,21 @@ import { sheets, type sheets_v4 } from "@googleapis/sheets";
 import { z } from "zod";
 import { colToIndex, hexToColor, indexToCol, parseA1, quoteSheet, spreadsheetIdFrom, toA1 } from "./a1.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { findSpreadsheets, forgetAccount, looksLikeSpreadsheetRef, rememberSpreadsheet, spreadsheetUrl } from "./recent.js";
+import {
+  PREVIEW_HTML,
+  PREVIEW_MIME,
+  PREVIEW_URI,
+  UI_EXTENSION,
+  buildPreview,
+  fitWindow,
+  previewSummary,
+  previewWindow,
+  toRect,
+  union,
+  type PreviewEdit,
+  type Rect,
+} from "./preview.js";
 import { getAuthClient, getDefaultAccount, listAccounts, removeAccount, resolveAccount, setDefaultAccount, startSignIn, type SignIn } from "./auth.js";
 
 type Request = sheets_v4.Schema$Request;
@@ -177,6 +192,57 @@ async function verify(id: string, range: string) {
   };
 }
 
+// ---------- activity log (feeds the live sheet preview) ----------
+
+interface Activity {
+  seq: number;
+  tool: string;
+  kind: "read" | "edit";
+  range?: string;
+  tab?: string;
+  at: number;
+}
+const activityLog = new Map<string, Activity[]>();
+let activitySeq = 0;
+/** When show_range last ran for each spreadsheet, so tool results can tell Claude whether the user is watching. */
+const previewShownAt = new Map<string, number>();
+const PREVIEW_FRESH_MS = 20 * 60_000;
+const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "create_spreadsheet", "show_range", "preview_updates"]);
+const READS = new Set(["get_spreadsheet_info", "read_range", "read_ranges"]);
+/** Tools that only look (hosts can run these without asking), and tools that can overwrite or remove what's in a sheet. */
+const READ_ONLY = new Set([...READS, "find_spreadsheet", "show_range", "preview_updates"]);
+const DESTRUCTIVE = new Set(["write_range", "clear_range", "find_replace", "delete_rows_or_columns", "manage_tab", "merge_cells", "delete_chart", "batch_update"]);
+
+function logActivity(id: string, tool: string, args: any, result: any) {
+  if (UNLOGGED.has(tool) || args?.dry_run || result?.would_write || result?.would_clear) return;
+  const kind = READS.has(tool) ? "read" : "edit";
+  const range =
+    kind === "read"
+      ? (result?.range ?? args?.range)
+      : (result?.updated_range ?? result?.appended_range ?? result?.cleared_range ?? result?.restored_range ?? args?.range ?? args?.data_range);
+  const list = activityLog.get(id) ?? [];
+  const ranges: (string | undefined)[] = Array.isArray(result?.ranges) ? result.ranges.map((r: any) => r?.range) : [range ?? result?.pivot_range];
+  for (const r of ranges) list.push({ seq: ++activitySeq, tool, kind, range: r, tab: args?.tab ?? args?.sheet ?? result?.tab, at: Date.now() });
+  while (list.length > 300) list.shift();
+  activityLog.set(id, list);
+}
+
+/** Activity after `since` (and newer than `after`, a timestamp), with sheet-less ranges placed on the first tab. */
+async function activitySince(id: string, since: number, after = 0): Promise<PreviewEdit[]> {
+  const list = (activityLog.get(id) ?? []).filter((e) => e.seq > since && e.at > after);
+  if (!list.length) return [];
+  const first = (await getSheetProps(id))[0]?.title ?? undefined;
+  return list.map((e) => {
+    const base = { seq: e.seq, tool: e.tool, kind: e.kind };
+    if (!e.range) return { ...base, tab: e.tab ?? first };
+    const p = parseA1(e.range);
+    const tab = p.sheet ?? first;
+    if (p.startRow === undefined && p.startCol === undefined) return { ...base, tab };
+    const { rect } = toRect(e.range);
+    return { ...base, tab, rect, a1: toA1(undefined, rect.r0, rect.c0, rect.r1, rect.c1) };
+  });
+}
+
 // ---------- account confirmation ----------
 
 async function canOpen(email: string, sheetId: string) {
@@ -211,13 +277,16 @@ async function needsAccountChoice(tool: string, sheetId: string | undefined, all
 // ---------- server ----------
 
 export function createServer() {
+  let previewsOn = false;
   const server = new McpServer(
     { name: "google-sheets", version: "1.0.0" },
     {
       instructions:
         "Sheets MCP lets you read and edit the user's Google Sheets. " +
         "The first time the user brings up spreadsheets in a conversation, briefly offer what you can do (summarize a sheet, add columns and formulas, clean up formatting, sort and filter, add dropdowns, build charts, create new spreadsheets) and ask them to paste a link to the sheet. " +
-        "When several Google accounts are connected, some tools reply that the account must be confirmed: ask the user which account to use, then call the tool again with `account` set to their choice. Never pick an account for them.",
+        "If they name a spreadsheet instead of pasting a link, call find_spreadsheet: it knows the spreadsheets they've used with Sheets MCP before (it can't search their Google Drive, so ask for the link if nothing matches). " +
+        "When several Google accounts are connected, some tools reply that the account must be confirmed: ask the user which account to use, then call the tool again with `account` set to their choice. Never pick an account for them. " +
+        "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once per task. If you've already started without it, call it right away; it catches up on what you've done.",
     },
   );
 
@@ -245,6 +314,18 @@ export function createServer() {
     .optional()
     .describe("Google account to use: an email or unique part of one (e.g. \"acme.com\"). Default: the account that can open the spreadsheet, else the default account.");
 
+  /** Note the spreadsheet a successful call worked on, so it can be found by name later (at most every few minutes each). */
+  const rememberedAt = new Map<string, number>();
+  function remember(name: string, args: any, result: any, sheetId: string | undefined, account: string) {
+    if (name === "create_spreadsheet" && result?.spreadsheet_id) return rememberSpreadsheet(result.spreadsheet_id, args.title, account);
+    if (!sheetId || Date.now() - (rememberedAt.get(sheetId) ?? 0) < 5 * 60_000) return;
+    rememberedAt.set(sheetId, Date.now());
+    const known = result?.title ?? result?.preview?.title;
+    if (typeof known === "string" && known) return rememberSpreadsheet(sheetId, known, account);
+    // Look the title up in the background; the tool's answer doesn't wait for it.
+    void canOpen(account, sheetId).then((title) => title && rememberSpreadsheet(sheetId, title, account));
+  }
+
   /**
    * Register a tool. It runs as one account: the explicit `account` arg, or for spreadsheet
    * tools each signed-in account in turn (last-known, default, others) until one has access.
@@ -255,10 +336,19 @@ export function createServer() {
     description: string,
     shape: S,
     handler: (args: z.infer<z.ZodObject<S>> & { account?: string }) => Promise<unknown>,
-    opts: { manageAccounts?: boolean } = {},
+    opts: { manageAccounts?: boolean; title?: string; preview?: "show" | "app" } = {},
   ) {
     const fullShape = opts.manageAccounts ? shape : { ...shape, account: accountArg };
-    server.registerTool(name, { description, inputSchema: fullShape }, (async (args: z.infer<z.ZodObject<S>> & { account?: string }) => {
+    const config = {
+      description,
+      inputSchema: fullShape,
+      ...(opts.title && { title: opts.title }),
+      annotations: READ_ONLY.has(name) ? { readOnlyHint: true, openWorldHint: true } : { readOnlyHint: false, destructiveHint: DESTRUCTIVE.has(name), openWorldHint: true },
+      // MCP Apps: show_range renders with the preview widget; preview_updates is called only by that widget.
+      ...(opts.preview === "show" && { _meta: { ui: { resourceUri: PREVIEW_URI }, "ui/resourceUri": PREVIEW_URI } }),
+      ...(opts.preview === "app" && { _meta: { ui: { resourceUri: PREVIEW_URI, visibility: ["app"] } } }),
+    };
+    return server.registerTool(name, config, (async (args: z.infer<z.ZodObject<S>> & { account?: string }) => {
       try {
         if (opts.manageAccounts) {
           const result = await handler(args);
@@ -267,6 +357,20 @@ export function createServer() {
         const { all, fallback } = await accounts();
         let result: unknown;
         let usedAccount: string | undefined;
+        // A name instead of a link: look it up among the spreadsheets used here before.
+        const given = (args as any).spreadsheet;
+        if (typeof given === "string" && !looksLikeSpreadsheetRef(given)) {
+          const matches = findSpreadsheets(given);
+          if (matches.length !== 1) {
+            throw new Error(
+              matches.length
+                ? `${matches.length} spreadsheets used before match "${given}": ${matches.slice(0, 8).map((m) => `"${m.title}" (${m.account}, ${spreadsheetUrl(m.id)})`).join("; ")}. Ask the user which one, then use its link.`
+                : `No spreadsheet named "${given}" among the ones used with Sheets MCP before. Sheets MCP can't search the user's Google Drive: ask them to paste the sheet's link.`,
+            );
+          }
+          (args as any).spreadsheet = matches[0].id;
+          if (!args.account && all.includes(matches[0].account)) accountForSpreadsheet.set(matches[0].id, accountForSpreadsheet.get(matches[0].id) ?? matches[0].account);
+        }
         const sheetId = typeof (args as any).spreadsheet === "string" ? spreadsheetIdFrom((args as any).spreadsheet) : undefined;
         if (!args.account && all.length > 1) {
           const ask = await needsAccountChoice(name, sheetId, all, fallback);
@@ -290,9 +394,33 @@ export function createServer() {
           }
         }
         if (!usedAccount) throw new Error(`No signed-in account could do this.\n${failures.join("\n")}`);
+        remember(name, args, result, sheetId, usedAccount);
+        if (opts.preview && (opts.preview === "show" || (args as any).initial)) {
+          console.error(`Sheet preview: ${name}${(args as any).initial ? " (widget's own fetch)" : ""} from ${server.server.getClientVersion()?.name}`);
+        }
+        if (opts.preview) {
+          const out: Record<string, any> = { ...(result as Record<string, unknown>), account: usedAccount };
+          // Hosts can keep serving a cached copy of the first widget, which read the preview from the top
+          // level; repeat it there so that copy still draws the sheet.
+          if (out.preview) Object.assign(out, { ...out.preview, ...out });
+          const text = opts.preview === "show" ? previewSummary(out.preview, out.edits.length) : "ok";
+          return { content: [{ type: "text" as const, text }], structuredContent: out };
+        }
         let text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
         if (usedAccount && all.length > 1) text = `[account: ${usedAccount}]\n${text}`;
-        return { content: [{ type: "text" as const, text }] };
+        const content = [{ type: "text" as const, text }];
+        if (sheetId && !UNLOGGED.has(name)) {
+          logActivity(sheetId, name, args, result);
+          // Nudge Claude to open the live preview, so the user can watch the rest of the work.
+          const shown = previewShownAt.get(sheetId);
+          if (previewsOn && (!shown || Date.now() - shown > PREVIEW_FRESH_MS)) {
+            content.push({
+              type: "text" as const,
+              text: "The user can't see what you're doing in this sheet. Call show_range now (the spreadsheet alone is enough; add `range` for the area you're working in): it catches up on what you've done so far, then shows each read and edit live. Call it once per task.",
+            });
+          }
+        }
+        return { content };
       } catch (e: any) {
         const msg = errorMessage(e);
         return { isError: true, content: [{ type: "text" as const, text: `Error: ${msg}` }] };
@@ -300,7 +428,7 @@ export function createServer() {
     }) as any);
   }
 
-  const spreadsheet = z.string().describe("Spreadsheet ID or full Google Sheets URL");
+  const spreadsheet = z.string().describe("Google Sheets link or spreadsheet ID. The name of a spreadsheet used with Sheets MCP before also works");
   const range = z.string().describe("A1 range, e.g. \"Sheet1!A1:D20\", \"'My Tab'!B:B\", or a tab name");
   const cell = z.union([z.string(), z.number(), z.boolean(), z.null()]);
   const grid = z.array(z.array(cell)).describe("2D array of rows. Strings starting with = are formulas.");
@@ -326,12 +454,31 @@ export function createServer() {
           const removed = await removeAccount(email);
           clients.delete(removed);
           for (const [id, acct] of accountForSpreadsheet) if (acct === removed) accountForSpreadsheet.delete(id);
+          forgetAccount(removed);
         } else setDefaultAccount(email);
       }
       const all = listAccounts();
       return all.length
         ? { accounts: all, default: getDefaultAccount() }
         : { accounts: [], note: "No Google accounts are signed in. Use action \"add\" to sign in." };
+    },
+    { manageAccounts: true },
+  );
+
+  tool(
+    "find_spreadsheet",
+    "Find a spreadsheet by name among the ones the user has opened or created with Sheets MCP before (the list is kept on their computer). Use it when the user names a sheet instead of pasting a link, e.g. \"my budget sheet\". It can't search the rest of their Google Drive: if nothing matches, ask for the link. Leave query empty to list the most recent.",
+    { query: z.string().optional().describe("All or part of the spreadsheet's name") },
+    async ({ query }) => {
+      const matches = findSpreadsheets(query);
+      const spreadsheets = matches.slice(0, 15).map((m) => ({ title: m.title, url: spreadsheetUrl(m.id), account: m.account, last_used: m.last_used.slice(0, 10) }));
+      if (spreadsheets.length) return { spreadsheets, ...(matches.length > 15 && { more: matches.length - 15 }) };
+      return {
+        spreadsheets,
+        note: query
+          ? `Nothing used before matches "${query}". Ask the user to paste the sheet's link.`
+          : "No spreadsheets have been used with Sheets MCP on this computer yet. Ask the user to paste a sheet's link.",
+      };
     },
     { manageAccounts: true },
   );
@@ -353,13 +500,15 @@ export function createServer() {
 
   tool(
     "get_spreadsheet_info",
-    "Get a spreadsheet's title, tabs (sizes, frozen rows/cols), named ranges, and the first few rows of each tab. Call this first to understand a sheet's layout.",
+    "Get a spreadsheet's title, tabs (sizes, frozen rows/cols), charts (ids, types, data ranges), named ranges, and the first few rows of each tab. Call this first to understand a sheet's layout.",
     { spreadsheet, preview_rows: z.number().int().min(0).max(20).default(3) },
     async ({ spreadsheet, preview_rows }) => {
       const id = spreadsheetIdFrom(spreadsheet);
       const res = await api().sheets.spreadsheets.get({
         spreadsheetId: id,
-        fields: "properties(title,locale,timeZone),spreadsheetUrl,sheets(properties,charts(chartId),basicFilter.range),namedRanges",
+        fields:
+          "properties(title,locale,timeZone),spreadsheetUrl,sheets(properties,basicFilter.range," +
+          "charts(chartId,position/overlayPosition/anchorCell,spec(title,basicChart(chartType,domains/domain/sourceRange/sources,series/series/sourceRange/sources),pieChart(domain/sourceRange/sources,series/sourceRange/sources)))),namedRanges",
       });
       const tabs = res.data.sheets ?? [];
       let previews: sheets_v4.Schema$ValueRange[] = [];
@@ -385,7 +534,21 @@ export function createServer() {
             frozen_rows: p.gridProperties?.frozenRowCount ?? 0,
             frozen_columns: p.gridProperties?.frozenColumnCount ?? 0,
             ...(p.hidden && { hidden: true }),
-            ...(t.charts?.length && { charts: t.charts.length }),
+            ...(t.charts?.length && {
+              charts: t.charts.map((c) => {
+                const basic = c.spec?.basicChart, pie = c.spec?.pieChart;
+                const src = [basic?.domains?.[0]?.domain, ...(basic?.series ?? []).map((x) => x.series), pie?.domain, pie?.series].flatMap((d) => d?.sourceRange?.sources ?? []);
+                const title = (g: sheets_v4.Schema$GridRange) => tabs.find((x) => x.properties?.sheetId === (g.sheetId ?? 0))?.properties?.title ?? undefined;
+                const a = c.position?.overlayPosition?.anchorCell;
+                return {
+                  chart_id: c.chartId,
+                  ...(c.spec?.title && { title: c.spec.title }),
+                  type: pie ? "PIE" : basic?.chartType ?? "OTHER",
+                  ...(a && { at: `${indexToCol(a.columnIndex ?? 0)}${(a.rowIndex ?? 0) + 1}` }),
+                  data: src.slice(0, 8).map((g) => toA1(title(g), g.startRowIndex ?? 0, g.startColumnIndex ?? 0, g.endRowIndex ?? (g.startRowIndex ?? 0) + 1, g.endColumnIndex ?? (g.startColumnIndex ?? 0) + 1)),
+                };
+              }),
+            }),
             ...(t.basicFilter && { has_filter: true }),
             ...(preview_rows > 0 && { preview: previews[i]?.values ?? [] }),
           };
@@ -437,6 +600,137 @@ export function createServer() {
         next_range: next,
       };
     },
+  );
+
+  tool(
+    "read_ranges",
+    "Read several ranges in one call, across any tabs. Faster than calling read_range repeatedly. Each range is truncated to its share of max_cells; use its next_range with read_range to continue.",
+    {
+      spreadsheet,
+      ranges: z.array(range).min(1).max(20),
+      mode: z
+        .enum(["values", "formulas", "raw"])
+        .default("values")
+        .describe("values = as displayed; formulas = show formulas instead of results; raw = unformatted numbers"),
+      max_cells: z.number().int().min(1).max(20_000).default(4000).describe("Total across all ranges"),
+    },
+    async ({ spreadsheet, ranges, mode, max_cells }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const res = await api().sheets.spreadsheets.values.batchGet({
+        spreadsheetId: id,
+        ranges,
+        valueRenderOption: { values: "FORMATTED_VALUE", formulas: "FORMULA", raw: "UNFORMATTED_VALUE" }[mode],
+      });
+      const share = Math.max(1, Math.floor(max_cells / ranges.length));
+      return {
+        ranges: (res.data.valueRanges ?? []).map((vr, i) => {
+          const values = (vr.values ?? []) as Cell[][];
+          const width = Math.max(1, ...values.map((r) => r.length));
+          const maxRows = Math.max(1, Math.floor(share / width));
+          const actual = vr.range ?? ranges[i];
+          if (values.length <= maxRows) return { range: actual, rows: values.length, values };
+          const start = parseA1(actual);
+          const sr = start.startRow ?? 0, sc = start.startCol ?? 0;
+          const tab = start.sheet ? quoteSheet(start.sheet) + "!" : "";
+          return {
+            range: toA1(start.sheet, sr, sc, sr + maxRows, sc + width),
+            rows: maxRows,
+            values: values.slice(0, maxRows),
+            truncated: true,
+            total_rows_with_data: values.length,
+            next_range: `${tab}${indexToCol(sc)}${sr + maxRows + 1}:${indexToCol(sc + width - 1)}`,
+          };
+        }),
+      };
+    },
+  );
+
+  server.registerResource(
+    // Named after the page's hash too, in case a host caches widgets by resource name.
+    `sheet_preview_${PREVIEW_URI.slice(-15, -5)}`,
+    PREVIEW_URI,
+    { title: "Sheet preview", description: "Inline preview of a range, with Claude's changes highlighted", mimeType: PREVIEW_MIME },
+    async () => {
+      console.error(`Sheet preview: widget page ${PREVIEW_URI} sent to ${server.server.getClientVersion()?.name}`);
+      return { contents: [{ uri: PREVIEW_URI, mimeType: PREVIEW_MIME, text: PREVIEW_HTML, _meta: { ui: { prefersBorder: false } } }] };
+    },
+  );
+
+  /**
+   * Build the preview for show_range (or the widget's own first fetch): the requested area, or
+   * where Claude has been working, plus the recent activity the user hasn't seen, to replay.
+   */
+  const lastReplay = new Map<string, { at: number; edits: PreviewEdit[] }>();
+  async function openPreview(id: string, range?: string, highlight?: string) {
+    let recent = await activitySince(id, 0, Math.max(previewShownAt.get(id) ?? 0, Date.now() - 15 * 60_000));
+    // The widget's own first fetch comes right after show_range; give it the same steps to replay.
+    const prior = lastReplay.get(id);
+    if (!recent.length && prior && Date.now() - prior.at < 60_000) recent = prior.edits;
+    lastReplay.set(id, { at: Date.now(), edits: recent });
+    let sheetName: string | undefined;
+    let rect: Rect, outline: Rect | undefined, truncated = false;
+    if (range || highlight) {
+      const win = previewWindow(range, highlight);
+      sheetName = win.sheet;
+      ({ rect, truncated } = win);
+      outline = win.highlight;
+    } else {
+      sheetName = [...recent].reverse().find((e) => e.tab)?.tab;
+      rect = { r0: 0, c0: 0, r1: 100, c1: 26 };
+    }
+    const sheet = await resolveSheet(id, sheetName);
+    const onTab = recent.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
+    if (!range) rect = fitWindow(rect, onTab);
+    const edited = recent.filter((e) => e.kind === "edit" && e.tab === sheet.title && e.rect).map((e) => e.rect!);
+    const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, {
+      highlight: outline,
+      keep: union(edited),
+      truncated,
+    });
+    previewShownAt.set(id, Date.now());
+    return { preview, edits: recent, seq: activitySeq };
+  }
+
+  const showRange = tool(
+    "show_range",
+    "Show the user a live view of the sheet right in the conversation, so they can watch you work. Call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing anything. The view stays live: each range you read gets a scanning outline, each edit animates in (Claude's cursor moves there and the cells fill in), and it follows you across tabs. Call it once per task, not after every step. If you already started, call it now: it catches up on what you've done.",
+    {
+      spreadsheet,
+      range: z.string().optional().describe("A1 range to show first, e.g. \"Sales!A1:F20\". Default: the first tab, or wherever you've been working"),
+      highlight: z.string().optional().describe("A1 range to outline, e.g. cells changed outside this session"),
+    },
+    async ({ spreadsheet, range, highlight }) => openPreview(spreadsheetIdFrom(spreadsheet), range, highlight),
+    { title: "Show sheet preview", preview: "show" },
+  );
+
+  const previewUpdates = tool(
+    "preview_updates",
+    "Used by the sheet preview to fetch what Claude has read or edited since it last checked. Not for the model.",
+    {
+      spreadsheet,
+      range: z.string().optional().describe("The preview's current window"),
+      highlight: z.string().optional(),
+      since: z.number().int().min(0).default(0).describe("Last activity sequence number the preview has seen"),
+      initial: z.boolean().default(false).describe("Build the whole preview, as show_range does (when the host didn't pass its result through)"),
+    },
+    async ({ spreadsheet, range, highlight, since, initial }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      if (initial || !range) return openPreview(id, range, highlight);
+      previewShownAt.set(id, Date.now());
+      const edits = await activitySince(id, since);
+      if (!edits.length) return { edits, seq: Math.max(since, activitySeq) };
+      const { sheet: winTab, rect: win } = toRect(range);
+      // Follow Claude to whichever tab it touched last.
+      const lastTab = [...edits].reverse().find((e) => e.tab)?.tab ?? winTab;
+      const sheet = await resolveSheet(id, lastTab);
+      const onTab = edits.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
+      const base = sheet.title === winTab ? win : { r0: 0, c0: 0, r1: 100, c1: 26 };
+      const rect = fitWindow(base, onTab);
+      const edited = edits.filter((e) => e.kind === "edit" && e.tab === sheet.title && e.rect).map((e) => e.rect!);
+      const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, { keep: union(edited) });
+      return { edits, seq: activitySeq, preview };
+    },
+    { preview: "app" },
   );
 
   // ----- writing -----
@@ -919,13 +1213,56 @@ export function createServer() {
     },
   );
 
+  const chartType = z.enum(["COLUMN", "BAR", "LINE", "AREA", "SCATTER", "PIE", "COMBO"]);
+
+  /** Chart spec for a data range: the first column is the X axis/labels, each following column a series. */
+  async function chartSpecFor(id: string, o: { data_range: string; chart_type: z.infer<typeof chartType>; title?: string; has_header: boolean; stacked: boolean }) {
+    const { bounded: b, sheet } = await resolveRange(id, o.data_range);
+    const col = (c: number): sheets_v4.Schema$ChartData => ({
+      sourceRange: { sources: [{ sheetId: sheet.sheetId, startRowIndex: b.startRow, endRowIndex: b.endRow, startColumnIndex: c, endColumnIndex: c + 1 }] },
+    });
+    const spec: sheets_v4.Schema$ChartSpec =
+      o.chart_type === "PIE"
+        ? { title: o.title, pieChart: { legendPosition: "RIGHT_LEGEND", domain: col(b.startCol), series: col(b.startCol + 1) } }
+        : {
+            title: o.title,
+            basicChart: {
+              chartType: o.chart_type,
+              legendPosition: "BOTTOM_LEGEND",
+              headerCount: o.has_header ? 1 : 0,
+              ...(o.stacked && { stackedType: "STACKED" }),
+              domains: [{ domain: col(b.startCol) }],
+              series: Array.from({ length: b.endCol - b.startCol - 1 }, (_, i) => ({
+                series: col(b.startCol + i + 1),
+                targetAxis: o.chart_type === "BAR" ? "BOTTOM_AXIS" : "LEFT_AXIS",
+                ...(o.chart_type === "COMBO" && { type: i === 0 ? "COLUMN" : "LINE" }),
+              })),
+            },
+          };
+    if (o.chart_type === "PIE" && o.has_header) {
+      // Pie charts have no headerCount; skip the header row instead.
+      for (const d of [spec.pieChart!.domain!, spec.pieChart!.series!]) d.sourceRange!.sources![0].startRowIndex = b.startRow + 1;
+    }
+    return { spec, bounded: b, sheet };
+  }
+
+  async function findChart(id: string, chartId: number) {
+    const res = await api().sheets.spreadsheets.get({ spreadsheetId: id, fields: "sheets(properties(sheetId,title),charts)" });
+    for (const s of res.data.sheets ?? []) {
+      const chart = (s.charts ?? []).find((c) => c.chartId === chartId);
+      if (chart) return { chart, tab: s.properties!.title! };
+    }
+    const all = (res.data.sheets ?? []).flatMap((s) => (s.charts ?? []).map((c) => `${c.chartId} (${c.spec?.title ?? "untitled"}, on ${s.properties?.title})`));
+    throw new Error(`No chart with id ${chartId}. Charts in this spreadsheet: ${all.join("; ") || "none"}. get_spreadsheet_info lists them.`);
+  }
+
   tool(
     "add_chart",
     "Create a chart from a data range. The first column is the X axis/labels; each following column is a series. Use a header row for series names.",
     {
       spreadsheet,
       data_range: z.string().describe("e.g. \"Sales!A1:C13\""),
-      chart_type: z.enum(["COLUMN", "BAR", "LINE", "AREA", "SCATTER", "PIE", "COMBO"]).default("COLUMN"),
+      chart_type: chartType.default("COLUMN"),
       title: z.string().optional(),
       anchor_cell: z.string().optional().describe("Where to place the chart's top-left, e.g. \"Sales!F2\" (default: right of the data)"),
       has_header: z.boolean().default(true),
@@ -933,40 +1270,173 @@ export function createServer() {
     },
     async ({ spreadsheet, data_range, chart_type, title, anchor_cell, has_header, stacked }) => {
       const id = spreadsheetIdFrom(spreadsheet);
-      const { bounded: b, sheet } = await resolveRange(id, data_range);
-      const col = (c: number): sheets_v4.Schema$ChartData => ({
-        sourceRange: { sources: [{ sheetId: sheet.sheetId, startRowIndex: b.startRow, endRowIndex: b.endRow, startColumnIndex: c, endColumnIndex: c + 1 }] },
-      });
+      const { spec, bounded: b, sheet } = await chartSpecFor(id, { data_range, chart_type, title, has_header, stacked });
       let anchor = { sheetId: sheet.sheetId, rowIndex: b.startRow, columnIndex: b.endCol + 1 };
       if (anchor_cell) {
         const { bounded: ab, sheet: as } = await resolveRange(id, anchor_cell);
         anchor = { sheetId: as.sheetId, rowIndex: ab.startRow, columnIndex: ab.startCol };
       }
-      const headerCount = has_header ? 1 : 0;
-      const spec: sheets_v4.Schema$ChartSpec =
-        chart_type === "PIE"
-          ? { title, pieChart: { legendPosition: "RIGHT_LEGEND", domain: col(b.startCol), series: col(b.startCol + 1) } }
-          : {
-              title,
-              basicChart: {
-                chartType: chart_type,
-                legendPosition: "BOTTOM_LEGEND",
-                headerCount,
-                ...(stacked && { stackedType: "STACKED" }),
-                domains: [{ domain: col(b.startCol) }],
-                series: Array.from({ length: b.endCol - b.startCol - 1 }, (_, i) => ({
-                  series: col(b.startCol + i + 1),
-                  targetAxis: chart_type === "BAR" ? "BOTTOM_AXIS" : "LEFT_AXIS",
-                  ...(chart_type === "COMBO" && { type: i === 0 ? "COLUMN" : "LINE" }),
-                })),
-              },
-            };
-      if (chart_type === "PIE" && has_header) {
-        // Pie charts have no headerCount; skip the header row instead.
-        for (const d of [spec.pieChart!.domain!, spec.pieChart!.series!]) d.sourceRange!.sources![0].startRowIndex = b.startRow + 1;
-      }
       const res = await batch(id, [{ addChart: { chart: { spec, position: { overlayPosition: { anchorCell: anchor } } } } }]);
       return { chart_id: res.replies?.[0]?.addChart?.chart?.chartId, placed_at: `${indexToCol(anchor.columnIndex)}${anchor.rowIndex + 1}` };
+    },
+  );
+
+  tool(
+    "update_chart",
+    "Change an existing chart: its title, type, data range, stacking, position or size. Only the options you give are changed. Chart ids come from get_spreadsheet_info or add_chart.",
+    {
+      spreadsheet,
+      chart_id: z.number().int(),
+      title: z.string().optional(),
+      chart_type: chartType.optional(),
+      data_range: z.string().optional().describe("New data, laid out as for add_chart: first column labels, then one column per series"),
+      has_header: z.boolean().default(true).describe("Used with data_range"),
+      stacked: z.boolean().optional(),
+      anchor_cell: z.string().optional().describe("Move the chart's top-left corner here, e.g. \"Sales!F2\""),
+      width: z.number().int().min(50).max(4000).optional().describe("Pixels"),
+      height: z.number().int().min(50).max(4000).optional().describe("Pixels"),
+    },
+    async ({ spreadsheet, chart_id, title, chart_type, data_range, has_header, stacked, anchor_cell, width, height }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const { chart, tab } = await findChart(id, chart_id);
+      const old = chart.spec ?? {};
+      const oldType = (old.pieChart ? "PIE" : old.basicChart?.chartType) as z.infer<typeof chartType> | undefined;
+      const requests: Request[] = [];
+      const changed: string[] = [];
+      if (title !== undefined || chart_type || data_range || stacked !== undefined) {
+        let spec: sheets_v4.Schema$ChartSpec;
+        if (data_range) {
+          ({ spec } = await chartSpecFor(id, {
+            data_range,
+            chart_type: chart_type ?? oldType ?? "COLUMN",
+            title: title ?? old.title ?? undefined,
+            has_header,
+            stacked: stacked ?? old.basicChart?.stackedType === "STACKED",
+          }));
+        } else {
+          spec = structuredClone(old);
+          if (title !== undefined) spec.title = title;
+          if (chart_type && chart_type !== oldType) {
+            if (chart_type === "PIE" || !spec.basicChart) throw new Error("Switching to or from a pie chart also needs data_range.");
+            spec.basicChart.chartType = chart_type;
+            (spec.basicChart.series ?? []).forEach((s, i) => {
+              s.targetAxis = chart_type === "BAR" ? "BOTTOM_AXIS" : "LEFT_AXIS";
+              if (chart_type === "COMBO") s.type = i === 0 ? "COLUMN" : "LINE";
+              else delete s.type;
+            });
+          }
+          if (stacked !== undefined) {
+            if (!spec.basicChart) throw new Error("Pie charts can't be stacked.");
+            spec.basicChart.stackedType = stacked ? "STACKED" : "NOT_STACKED";
+          }
+        }
+        requests.push({ updateChartSpec: { chartId: chart_id, spec } });
+        changed.push(...[title !== undefined && "title", chart_type && "type", data_range && "data", stacked !== undefined && "stacking"].filter((x): x is string => !!x));
+      }
+      if (anchor_cell || width || height) {
+        const pos: sheets_v4.Schema$OverlayPosition = {};
+        if (anchor_cell) {
+          const { bounded: ab, sheet: as } = await resolveRange(id, anchor_cell);
+          Object.assign(pos, { anchorCell: { sheetId: as.sheetId, rowIndex: ab.startRow, columnIndex: ab.startCol }, offsetXPixels: 0, offsetYPixels: 0 });
+          changed.push("position");
+        }
+        if (width) pos.widthPixels = width;
+        if (height) pos.heightPixels = height;
+        if (width || height) changed.push("size");
+        requests.push({ updateEmbeddedObjectPosition: { objectId: chart_id, newPosition: { overlayPosition: pos }, fields: Object.keys(pos).join(",") } });
+      }
+      if (!requests.length) throw new Error("Nothing to change: give a title, chart_type, data_range, stacked, anchor_cell, width or height.");
+      await batch(id, requests);
+      return { chart_id, changed, tab };
+    },
+  );
+
+  tool(
+    "delete_chart",
+    "Delete a chart. Chart ids come from get_spreadsheet_info or add_chart. Not undoable through undo_last.",
+    { spreadsheet, chart_id: z.number().int() },
+    async ({ spreadsheet, chart_id }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const { chart, tab } = await findChart(id, chart_id);
+      await batch(id, [{ deleteEmbeddedObject: { objectId: chart_id } }]);
+      return { deleted_chart: chart_id, ...(chart.spec?.title && { title: chart.spec.title }), tab };
+    },
+  );
+
+  // ----- pivot tables -----
+
+  tool(
+    "add_pivot_table",
+    "Summarize a table with a pivot table: group by one or more columns, and total, count or average others. It goes on a new tab unless anchor_cell is given. The source range needs a header row; refer to columns by header name or letter.",
+    {
+      spreadsheet,
+      source_range: z.string().describe("The table to summarize, header row included, e.g. \"Orders!A1:F500\" or a tab name"),
+      rows: z.array(z.string()).default([]).describe("Columns to group by down the side, e.g. [\"Region\"]"),
+      columns: z.array(z.string()).default([]).describe("Columns to group by across the top"),
+      values: z
+        .array(
+          z.object({
+            column: z.string(),
+            summarize: z.enum(["SUM", "COUNTA", "COUNT", "COUNTUNIQUE", "AVERAGE", "MAX", "MIN", "MEDIAN"]).default("SUM").describe("COUNTA counts non-empty cells; COUNT counts numbers"),
+            name: z.string().optional().describe("Heading for this value"),
+          }),
+        )
+        .min(1),
+      anchor_cell: z.string().optional().describe("Top-left cell for the pivot table, e.g. \"Summary!A1\". The area below and right of it must be empty. Default: a new tab"),
+      new_tab_name: z.string().default("Pivot").describe("Name for the new tab when anchor_cell isn't given"),
+      show_totals: z.boolean().default(true),
+    },
+    async ({ spreadsheet, source_range, rows, columns, values, anchor_cell, new_tab_name, show_totals }) => {
+      if (!rows.length && !columns.length) throw new Error("Give at least one column to group by, in rows or columns.");
+      const id = spreadsheetIdFrom(spreadsheet);
+      const { sheet: src, parsed } = await resolveRange(id, source_range);
+      // Bound the source to the cells that have data, so open-ended ranges don't add a blank group.
+      const got = await api().sheets.spreadsheets.values.get({ spreadsheetId: id, range: source_range });
+      const data = (got.data.values ?? []) as Cell[][];
+      if (data.length < 2) throw new Error("The source range needs a header row and at least one row of data.");
+      const r0 = parsed.startRow ?? 0, c0 = parsed.startCol ?? 0;
+      const width = Math.max(...data.map((r) => r.length));
+      const headers = Array.from({ length: width }, (_, i) => String(data[0][i] ?? "").trim());
+      const offset = (name: string) => {
+        const byHeader = headers.findIndex((h) => h.toLowerCase() === name.trim().toLowerCase());
+        if (byHeader >= 0) return byHeader;
+        const byLetter = /^[A-Za-z]{1,3}$/.test(name.trim()) ? colToIndex(name.trim()) - c0 : -1;
+        if (byLetter >= 0 && byLetter < width) return byLetter;
+        throw new Error(`No column "${name}" in the source range. Columns: ${headers.filter(Boolean).join(", ")}`);
+      };
+      const group = (name: string): sheets_v4.Schema$PivotGroup => ({ sourceColumnOffset: offset(name), showTotals: show_totals, sortOrder: "ASCENDING" });
+      const pivotTable: sheets_v4.Schema$PivotTable = {
+        source: { sheetId: src.sheetId, startRowIndex: r0, endRowIndex: r0 + data.length, startColumnIndex: c0, endColumnIndex: c0 + width },
+        rows: rows.map(group),
+        columns: columns.map(group),
+        values: values.map((v) => ({ sourceColumnOffset: offset(v.column), summarizeFunction: v.summarize, ...(v.name && { name: v.name }) })),
+        valueLayout: "HORIZONTAL",
+      };
+      let dest: { sheetId: number; rowIndex: number; columnIndex: number };
+      let tab: string;
+      if (anchor_cell) {
+        const { bounded: ab, sheet: as } = await resolveRange(id, anchor_cell);
+        dest = { sheetId: as.sheetId!, rowIndex: ab.startRow, columnIndex: ab.startCol };
+        tab = as.title!;
+      } else {
+        const taken = new Set((await getSheetProps(id)).map((p) => p.title));
+        tab = new_tab_name;
+        for (let n = 2; taken.has(tab); n++) tab = `${new_tab_name} ${n}`;
+        const added = await batch(id, [{ addSheet: { properties: { title: tab } } }]);
+        dest = { sheetId: added.replies![0].addSheet!.properties!.sheetId!, rowIndex: 0, columnIndex: 0 };
+      }
+      await batch(id, [{ updateCells: { start: dest, rows: [{ values: [{ pivotTable }] }], fields: "pivotTable" } }]);
+      const out = await api().sheets.spreadsheets.values.get({ spreadsheetId: id, range: toA1(tab, dest.rowIndex, dest.columnIndex, dest.rowIndex + 200, dest.columnIndex + 26) });
+      const result = (out.data.values ?? []) as Cell[][];
+      const blocked = result.some((r) => r.some((v) => typeof v === "string" && v.startsWith("#REF!")));
+      return {
+        pivot_at: `${quoteSheet(tab)}!${indexToCol(dest.columnIndex)}${dest.rowIndex + 1}`,
+        tab,
+        pivot_range: toA1(tab, dest.rowIndex, dest.columnIndex, dest.rowIndex + Math.max(1, result.length), dest.columnIndex + Math.max(1, ...result.map((r) => r.length))),
+        rows: result.length,
+        preview: result.slice(0, 20),
+        ...(blocked && { warning: "The pivot table shows #REF!: other cells are in its way. Clear the area below and right of the anchor, or use a new tab." }),
+      };
     },
   );
 
@@ -982,6 +1452,18 @@ export function createServer() {
       return { replies: res.replies };
     },
   );
+
+  // Only offer show_range to hosts that can display MCP Apps; elsewhere Claude would call it and the user would see nothing.
+  server.server.oninitialized = () => {
+    const caps = server.server.getClientCapabilities() as { extensions?: Record<string, unknown> } | undefined;
+    const client = server.server.getClientVersion();
+    previewsOn = !!caps?.extensions?.[UI_EXTENSION];
+    console.error(`Client: ${client?.name} ${client?.version}; sheet previews ${previewsOn ? "on" : "off"}`);
+    if (!previewsOn) {
+      showRange.remove();
+      previewUpdates.remove();
+    }
+  };
 
   return server;
 }

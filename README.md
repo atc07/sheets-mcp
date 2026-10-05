@@ -2,7 +2,11 @@
 
 Let Claude read, edit, format and chart your Google Sheets. Ask for a new column, a cleaner layout or a chart, and Claude makes the change directly in your spreadsheet.
 
-Website: https://sheetsmcp.io
+**[See all features and watch the demo at sheetsmcp.io →](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=top)**
+
+[![Claude adds a profit column, totals, currency formatting and a chart while a live preview of the sheet updates in the chat](docs/live-preview.webp)](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=hero-image)
+
+Free and open source · Runs on your computer · Works in Claude Desktop and Claude Code
 
 ## Install
 
@@ -11,6 +15,8 @@ Website: https://sheetsmcp.io
 1. Install [Claude Desktop](https://claude.ai/download) and sign in.
 2. Download **[sheets-mcp.mcpb](https://sheetsmcp.io/downloads/sheets-mcp.mcpb)**.
 3. Double-click the file, then click **Install** in Claude Desktop.
+
+New to Claude Desktop? Follow the [step-by-step setup guide](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=install#install).
 
 The extension works in both the Chat and Code tabs. For long, multi-step jobs, the Code tab is the more dependable choice: it runs everything on your computer.
 
@@ -46,12 +52,25 @@ In Claude Desktop, click **+** and choose **Get started with Google Sheets** for
 - "Add a Profit column that subtracts Cost from Revenue, and format it as currency"
 - "Chart spending by month in this sheet: <link>"
 - "Freeze the header row, bold it, and auto-fit the column widths"
+- "Summarize revenue by region and product in a pivot table"
+- "Change that chart to a line chart and move it next to the table"
 - "Create a new spreadsheet called Trip Planner"
+- "Open my budget sheet" (works for sheets you've used with Sheets MCP before)
 - "Undo that"
+
+[More example requests and everything Sheets MCP can do →](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=examples)
+
+## Live preview
+
+In Claude Desktop, Claude opens a live preview of your sheet in the chat while it works. You see each range it reads and each change it makes as it happens, charts included, and the preview folds away when Claude is done. **Open in Sheets** jumps to the same cells in Google Sheets.
+
+After updating Sheets MCP, quit and reopen Claude Desktop so it loads the new preview.
+
+[Watch it in action on sheetsmcp.io →](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=live-preview)
 
 ## Privacy
 
-Sheets MCP runs on your computer. Your Google sign-in is stored only on your computer (in `~/.sheets-mcp`), and requests go straight from your computer to Google. There is no Sheets MCP server in between. Spreadsheet data Claude reads becomes part of your Claude conversation. See the [privacy policy](https://sheetsmcp.io/privacy).
+Sheets MCP runs on your computer. Your Google sign-in is stored only on your computer (in `~/.sheets-mcp`), and requests go straight from your computer to Google. There is no Sheets MCP server in between. It asks Google for access to your spreadsheets only, not the rest of your Drive. To find a sheet by name, it keeps a list of the spreadsheets you've used with it in `~/.sheets-mcp/recent.json` on your computer; delete that file to clear the list. Spreadsheet data Claude reads becomes part of your Claude conversation. See the [privacy policy](https://sheetsmcp.io/privacy).
 
 To disconnect, ask Claude to *"sign out of Google Sheets"*, or remove Sheets MCP at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
@@ -63,3 +82,9 @@ npx @sheetsmcp/server accounts                  # list signed-in accounts
 npx @sheetsmcp/server accounts default <email>  # choose the default account
 npx @sheetsmcp/server accounts remove <email>   # sign out an account
 ```
+
+## Learn more
+
+- **[sheetsmcp.io](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=footer)**: full feature list, demo, setup guide and FAQ
+- [Privacy policy](https://sheetsmcp.io/privacy) · [Terms](https://sheetsmcp.io/terms)
+- Questions or bugs: [open an issue](https://github.com/atc07/holy-sheets/issues)

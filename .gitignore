@@ -8,3 +8,7 @@ token.json
 oauth-client.json
 # Built by `npm run pack:extension`
 site/downloads/
+# Internal notes and design explorations, kept out of the public repo
+brand/options/
+concepts/
+docs/google-verification.md

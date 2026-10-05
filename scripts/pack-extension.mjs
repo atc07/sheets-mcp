@@ -18,7 +18,8 @@ if (!existsSync(`${root}oauth-client.json`)) {
 execFileSync("npm", ["run", "build"], { cwd: root, stdio: "inherit" });
 
 // Tool list for the manifest, straight from the server so it never drifts.
-const client = new Client({ name: "pack", version: "1" });
+// Claim MCP Apps support so show_range (only offered to hosts that can display it) is listed too.
+const client = new Client({ name: "pack", version: "1" }, { capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } } });
 await client.connect(new StdioClientTransport({ command: "node", args: [`${root}dist/index.js`], stderr: "ignore" }));
 const { tools } = await client.listTools();
 await client.close();
@@ -55,7 +56,8 @@ const manifest = {
     entry_point: "server/index.js",
     mcp_config: { command: "node", args: ["${__dirname}/server/index.js"] },
   },
-  tools: tools.map((t) => ({ name: t.name, description: t.description.split(/(?<=\.)\s/)[0] })),
+  // Leave out tools only the preview widget calls (MCP Apps visibility ["app"]).
+  tools: tools.filter((t) => !(t._meta?.ui?.visibility?.length === 1 && t._meta.ui.visibility[0] === "app")).map((t) => ({ name: t.name, description: t.description.split(/(?<=\.)\s/)[0] })),
   keywords: ["google sheets", "spreadsheets", "google", "sheets", "excel", "charts"],
   license: "MIT",
   privacy_policies: ["https://sheetsmcp.io/privacy"],

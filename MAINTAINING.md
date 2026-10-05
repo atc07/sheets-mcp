@@ -70,7 +70,7 @@ claude mcp add --scope user google-sheets -- node /Users/bluesteel/Desktop/Proje
 | Accounts & discovery | `google_accounts`, `get_spreadsheet_info`, `create_spreadsheet` |
 | Read/write | `read_range`, `write_range`, `append_rows`, `clear_range`, `find_replace`, `undo_last` |
 | Structure | `manage_tab`, `insert_rows_or_columns`, `delete_rows_or_columns`, `freeze`, `resize_columns`, `merge_cells` |
-| Formatting | `format_range`, `add_conditional_format` |
+| Formatting | `format_range`, `add_conditional_format`; read formatting with `read_range` mode `formats` |
 | Data | `sort_range`, `set_filter`, `set_data_validation`, `add_chart` |
 | Escape hatch | `batch_update` (raw Sheets API requests) |
 

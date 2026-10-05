@@ -22,6 +22,7 @@ await t("read_range", { spreadsheet: id, range: "Sales", mode: "formulas" }, d =
 await t("format_range", { spreadsheet: id, range: "Sales!A1:D1", bold: true, background_color: "#e8f0fe", borders: { sides: "bottom", style: "SOLID_MEDIUM" } });
 await t("format_range", { spreadsheet: id, range: "Sales!B2:D5", number_format: { type: "CURRENCY", pattern: "$#,##0" } });
 await t("read_range", { spreadsheet: id, range: "Sales!B2" }, d => d.values[0][0] === "$1,200");
+await t("read_range", { spreadsheet: id, range: "Sales!A1:D5", mode: "formats" }, d => Object.values(d.styles).some(s => s.includes("bg #e8f0fe") && s.includes("bold") && s.includes("border bottom #000000 solid_medium")) && d.rows[0].startsWith("1: A:D s"));
 await t("freeze", { spreadsheet: id, tab: "Sales", rows: 1 });
 await t("add_conditional_format", { spreadsheet: id, range: "Sales!D2:D4", color_scale: { min_color: "#fce8e6", max_color: "#e6f4ea" } });
 const chart = await t("add_chart", { spreadsheet: id, data_range: "Sales!A1:B4", chart_type: "COLUMN", title: "Revenue by month" }, d => d.chart_id);

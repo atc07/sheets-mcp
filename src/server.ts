@@ -141,6 +141,155 @@ function cellCount(values: unknown[][]) {
   return values.reduce((n, row) => n + row.length, 0);
 }
 
+// ---------- reading formats ----------
+
+function colorHex(style?: sheets_v4.Schema$ColorStyle | null, plain?: sheets_v4.Schema$Color | null): string | undefined {
+  if (style?.themeColor) return `theme:${style.themeColor}`;
+  const c = style?.rgbColor ?? plain;
+  if (!c) return undefined;
+  const h = (x?: number | null) => Math.round((x ?? 0) * 255).toString(16).padStart(2, "0");
+  return `#${h(c.red)}${h(c.green)}${h(c.blue)}`;
+}
+
+/** One-line summary of a cell format, e.g. "bg #1f3864 · fg #ffffff · bold · Calibri 10 · center · border bottom #d9d9d9". */
+function describeFormat(f?: sheets_v4.Schema$CellFormat | null): string {
+  if (!f) return "";
+  const parts: string[] = [];
+  const bg = colorHex(f.backgroundColorStyle, f.backgroundColor);
+  if (bg) parts.push(`bg ${bg}`);
+  const t = f.textFormat ?? {};
+  const fg = colorHex(t.foregroundColorStyle, t.foregroundColor);
+  if (fg) parts.push(`fg ${fg}`);
+  for (const k of ["bold", "italic", "underline", "strikethrough"] as const) if (t[k]) parts.push(k);
+  if (t.fontFamily || t.fontSize) parts.push([t.fontFamily, t.fontSize].filter(Boolean).join(" "));
+  if (f.horizontalAlignment) parts.push(f.horizontalAlignment.toLowerCase());
+  // Bottom alignment and overflow are Sheets' defaults, so they are left out.
+  if (f.verticalAlignment && f.verticalAlignment !== "BOTTOM") parts.push(`v-${f.verticalAlignment.toLowerCase()}`);
+  if (f.wrapStrategy && f.wrapStrategy !== "OVERFLOW_CELL") parts.push(f.wrapStrategy.toLowerCase());
+  if (f.numberFormat) parts.push(`num "${f.numberFormat.pattern ?? f.numberFormat.type}"`);
+  for (const side of ["top", "bottom", "left", "right"] as const) {
+    const b = f.borders?.[side];
+    if (b?.style && b.style !== "NONE") {
+      parts.push(`border ${side} ${colorHex(b.colorStyle, b.color) ?? "#000000"}${b.style === "SOLID" ? "" : " " + b.style.toLowerCase()}`);
+    }
+  }
+  return parts.join(" · ");
+}
+
+function overlaps(g: sheets_v4.Schema$GridRange, r0: number, r1: number, c0: number, c1: number) {
+  return (g.startRowIndex ?? 0) < r1 && (g.endRowIndex ?? Infinity) > r0 && (g.startColumnIndex ?? 0) < c1 && (g.endColumnIndex ?? Infinity) > c0;
+}
+
+async function readFormats(id: string, range: string, maxCells: number) {
+  const { bounded, sheet } = await resolveRange(id, range);
+  const title = sheet.title!;
+  const width = Math.max(1, bounded.endCol - bounded.startCol);
+  const maxRows = Math.max(1, Math.floor(maxCells / width));
+  const endRow = Math.min(bounded.endRow, bounded.startRow + maxRows);
+  const a1 = toA1(title, bounded.startRow, bounded.startCol, endRow, bounded.endCol);
+  const res = await api().sheets.spreadsheets.get({
+    spreadsheetId: id,
+    ranges: [a1],
+    includeGridData: true,
+    fields:
+      "properties.defaultFormat(textFormat(fontFamily,fontSize))," +
+      "sheets(properties(gridProperties(frozenRowCount,frozenColumnCount,hideGridlines))," +
+      "data(startRow,startColumn,rowMetadata(pixelSize),columnMetadata(pixelSize),rowData(values(formattedValue,userEnteredFormat)))," +
+      "merges,bandedRanges(range,rowProperties,columnProperties),conditionalFormats)",
+  });
+  const s = res.data.sheets?.[0];
+  const data = s?.data?.[0];
+  const r0 = data?.startRow ?? bounded.startRow;
+  const c0 = data?.startColumn ?? bounded.startCol;
+  const toRange = (g: sheets_v4.Schema$GridRange) =>
+    toA1(undefined, g.startRowIndex ?? 0, g.startColumnIndex ?? 0, g.endRowIndex ?? bounded.endRow, g.endColumnIndex ?? bounded.endCol);
+
+  const styleIds = new Map<string, string>();
+  const rows: string[] = [];
+  (data?.rowData ?? []).forEach((row, i) => {
+    const ids = (row.values ?? []).map((v) => {
+      const d = describeFormat(v.userEnteredFormat);
+      if (!d) return "-";
+      if (!styleIds.has(d)) styleIds.set(d, `s${styleIds.size + 1}`);
+      return styleIds.get(d)!;
+    });
+    while (ids.length && ids[ids.length - 1] === "-") ids.pop();
+    const label = (row.values ?? []).map((v) => v.formattedValue).find((t) => t && t.trim());
+    if (!ids.length && !label) return;
+    const runs: string[] = [];
+    let col = c0;
+    for (let j = 0; j < ids.length; ) {
+      let k = j;
+      while (k + 1 < ids.length && ids[k + 1] === ids[j]) k++;
+      const n = k - j + 1;
+      runs.push(`${indexToCol(col)}${n > 1 ? ":" + indexToCol(col + n - 1) : ""} ${ids[j]}`);
+      col += n;
+      j = k + 1;
+    }
+    const text = label ? `  "${label.length > 40 ? label.slice(0, 40) + "…" : label}"` : "";
+    rows.push(`${r0 + i + 1}: ${runs.join(", ") || "(no format)"}${text}`);
+  });
+
+  const r1 = r0 + (data?.rowData?.length ?? 0);
+  const c1 = bounded.endCol;
+  // Column widths as runs ("A 186, B:G 116"); row heights as the usual height plus exceptions.
+  const widths = (data?.columnMetadata ?? []).map((m) => m.pixelSize ?? 0);
+  const colWidths: string[] = [];
+  for (let j = 0; j < widths.length; ) {
+    let k = j;
+    while (k + 1 < widths.length && widths[k + 1] === widths[j]) k++;
+    colWidths.push(`${indexToCol(c0 + j)}${k > j ? ":" + indexToCol(c0 + k) : ""} ${widths[j]}`);
+    j = k + 1;
+  }
+  const heights = (data?.rowMetadata ?? []).map((m) => m.pixelSize ?? 0);
+  const counts = new Map<number, number>();
+  for (const h of heights) counts.set(h, (counts.get(h) ?? 0) + 1);
+  const usualHeight = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const rowHeights: Record<string, number> = {};
+  heights.forEach((h, i) => h !== usualHeight && (rowHeights[r0 + i + 1] = h));
+  const grid = s?.properties?.gridProperties ?? {};
+  const df = res.data.properties?.defaultFormat?.textFormat;
+  const banding = (s?.bandedRanges ?? [])
+    .filter((b) => overlaps(b.range!, r0, r1, c0, c1))
+    .map((b) => {
+      const p = b.rowProperties ?? b.columnProperties ?? {};
+      const kind = b.rowProperties ? "rows" : "columns";
+      const colors = [
+        p.headerColorStyle || p.headerColor ? `header ${colorHex(p.headerColorStyle, p.headerColor)}` : "",
+        `${colorHex(p.firstBandColorStyle, p.firstBandColor)} / ${colorHex(p.secondBandColorStyle, p.secondBandColor)}`,
+        p.footerColorStyle || p.footerColor ? `footer ${colorHex(p.footerColorStyle, p.footerColor)}` : "",
+      ].filter(Boolean);
+      return `${toRange(b.range!)}: ${kind} ${colors.join(", ")}`;
+    });
+  const conditional = (s?.conditionalFormats ?? [])
+    .filter((cf) => (cf.ranges ?? []).some((g) => overlaps(g, r0, r1, c0, c1)))
+    .map((cf) => {
+      const where = (cf.ranges ?? []).map(toRange).join(", ");
+      if (cf.gradientRule) return `${where}: color scale`;
+      const cond = cf.booleanRule?.condition;
+      const vals = (cond?.values ?? []).map((v) => v.userEnteredValue ?? v.relativeDate).join(", ");
+      return `${where}: ${cond?.type}${vals ? ` ${vals}` : ""} → ${describeFormat(cf.booleanRule?.format) || "(no format)"}`;
+    });
+
+  return {
+    range: toA1(title, r0, c0, r1, c1),
+    default_font: df ? [df.fontFamily, df.fontSize].filter(Boolean).join(" ") : undefined,
+    frozen: { rows: grid.frozenRowCount ?? 0, columns: grid.frozenColumnCount ?? 0 },
+    gridlines_hidden: grid.hideGridlines ?? false,
+    styles: Object.fromEntries([...styleIds].map(([d, sid]) => [sid, d])),
+    rows,
+    column_widths_px: colWidths.join(", "),
+    row_height_px: usualHeight,
+    ...(Object.keys(rowHeights).length ? { other_row_heights_px: rowHeights } : {}),
+    merges: (s?.merges ?? []).filter((m) => overlaps(m, r0, r1, c0, c1)).map(toRange),
+    banding,
+    conditional_formats: conditional,
+    ...(endRow < bounded.endRow && (data?.rowData?.length ?? 0) >= endRow - bounded.startRow
+      ? { truncated: true, next_range: toA1(title, endRow, bounded.startCol, bounded.endRow, bounded.endCol) }
+      : {}),
+  };
+}
+
 // ---------- undo (values + formulas only, in memory) ----------
 
 interface Snapshot {
@@ -562,18 +711,23 @@ export function createServer() {
 
   tool(
     "read_range",
-    "Read cell contents from a range. Large ranges are truncated; use next_range to continue.",
+    "Read cell contents from a range, or its formatting with mode \"formats\". Large ranges are truncated; use next_range to continue.",
     {
       spreadsheet,
       range,
       mode: z
-        .enum(["values", "formulas", "raw"])
+        .enum(["values", "formulas", "raw", "formats"])
         .default("values")
-        .describe("values = as displayed; formulas = show formulas instead of results; raw = unformatted numbers"),
+        .describe(
+          "values = as displayed; formulas = show formulas instead of results; raw = unformatted numbers; " +
+            "formats = cell formatting (fill, font, alignment, number format, borders) as a style table plus a per-row map of style ids, " +
+            "with merges, banding, conditional formats, column widths, frozen panes and gridlines",
+        ),
       max_cells: z.number().int().min(1).max(20_000).default(2000),
     },
     async ({ spreadsheet, range, mode, max_cells }) => {
       const id = spreadsheetIdFrom(spreadsheet);
+      if (mode === "formats") return readFormats(id, range, max_cells);
       const res = await api().sheets.spreadsheets.values.get({
         spreadsheetId: id,
         range,

@@ -110,6 +110,19 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .st.ok::before { content: ""; width: 6px; height: 3px; border: solid currentColor; border-width: 0 0 1.6px 1.6px; transform: translateY(-1px) rotate(-45deg); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .count { flex: none; }
+/* The steps list: one row per read or edit, like Claude's own tool rows. */
+.steps { display: grid; gap: 6px; padding: 10px 12px 12px; box-shadow: inset 0 1px 0 var(--grid); }
+.steps:empty { display: none; }
+.srow { display: grid; grid-template-columns: 16px auto minmax(0, 1fr) 16px; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 10px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--grid); font-size: 12.5px; transition: background-color 200ms ease, box-shadow 200ms ease; animation: rowin 260ms var(--ease) both; }
+.srow > svg { width: 15px; height: 15px; color: var(--muted); }
+.srow b { font: 600 12px/1.2 var(--mono); color: var(--fg); }
+.srow code { font: 11.5px/1.2 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow.read b { font-weight: 500; color: var(--muted); }
+.srow.run { background: var(--claude-soft); box-shadow: inset 0 0 0 1px var(--claude); }
+.srow .st { justify-self: end; width: 16px; height: 16px; }
+.srow .st.ok::before { width: 7px; height: 3.5px; border-width: 0 0 1.8px 1.8px; }
+.smore { font-size: 11.5px; color: var(--muted); padding: 0 2px; }
+@keyframes rowin { from { opacity: 0; transform: translateY(4px); } }
 /* Loading: a skeleton sheet; unavailable: one quiet line. */
 .skel .bar .t { color: var(--muted); font-weight: 500; }
 .skel .grid { padding: 0 0 10px; }
@@ -124,7 +137,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 @media (prefers-reduced-motion: reduce) {
   .cur, .scroll, .body { transition: none; scroll-behavior: auto; }
   .skel .row > i { animation: none; }
-  td.typed, td.flash::after, .live i, .cur .band::before, .gridwrap.enter, .chart * { animation: none !important; }
+  td.typed, td.flash::after, .live i, .cur .band::before, .gridwrap.enter, .chart *, .srow { animation: none !important; }
 }
 </style>
 </head>
@@ -161,6 +174,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
   let seq = 0;           // last edit seen
   const history = [];    // every step so far (reads and edits), for the summary
   let liveSteps = 0;     // steps animated live (not ones that happened before the preview opened)
+  const stepLog = [];    // rows for the steps list: { e, state: "run" | "ok" }
+  const MAX_ROWS_SHOWN = 4;
   let done = false, keepOpen = false, doneTimer;
   let queue = Promise.resolve();
   let busy = 0;
@@ -285,11 +300,13 @@ td.typed { animation: typed 320ms var(--ease) both; }
 
     if (entering) wrap.classList.add("enter");
     const fold = el("div", "body"), inner = el("div");
-    inner.append(fbar, scroll);
+    const steps = el("div", "steps");
+    inner.append(fbar, scroll, steps);
     fold.append(inner);
     card.classList.toggle("done", done);
     card.append(bar, fold, foot);
-    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, selected: null };
+    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, steps, selected: null };
+    renderSteps();
     renderCharts();
   }
 
@@ -528,12 +545,26 @@ td.typed { animation: typed 320ms var(--ease) both; }
   const VERBS = { read_range: "Reading", get_spreadsheet_info: "Looking over", write_range: "Writing", append_rows: "Adding rows", clear_range: "Clearing", find_replace: "Replacing", format_range: "Formatting",
     add_conditional_format: "Adding color rules", sort_range: "Sorting", set_filter: "Filtering", set_data_validation: "Adding dropdowns", add_chart: "Adding a chart", freeze: "Freezing", resize_columns: "Resizing",
     merge_cells: "Merging", manage_tab: "Updating tabs", insert_rows_or_columns: "Inserting", delete_rows_or_columns: "Deleting", undo_last: "Undoing", batch_update: "Updating" };
+  const where = (e) => (e.a1 ? (e.tab ? e.tab + "!" : "") + e.a1 : e.tab || "");
+  // The current step shows as a highlighted row in the steps list; the footer just says Claude is at work.
   function showStep(state, e) {
+    if (state === "run") stepLog.push({ e, state });
+    else { const row = stepLog.findLast((x) => x.e === e); if (row) row.state = "ok"; }
+    renderSteps();
     ui.step.textContent = "";
-    ui.step.append(el("span", "st " + state));
-    if (!e) return;
-    const where = e.a1 ? (e.tab && e.tab !== P.tab ? e.tab + "!" : "") + e.a1 : e.tab || "";
-    ui.step.append(el("b", "", e.tool), el("code", "", where));
+    ui.step.append(el("span", "st " + state), el("span", "", state === "run" ? (VERBS[e.tool] || "Working") + "…" : "Done"));
+  }
+  function renderSteps() {
+    if (!ui || !ui.steps) return;
+    ui.steps.textContent = "";
+    const hidden = Math.max(0, stepLog.length - MAX_ROWS_SHOWN);
+    if (hidden) ui.steps.append(el("div", "smore", hidden + " earlier step" + (hidden === 1 ? "" : "s")));
+    for (const { e, state } of stepLog.slice(hidden)) {
+      const row = el("div", "srow " + state + (e.kind === "read" ? " read" : ""));
+      row.insertAdjacentHTML("beforeend", SHEET);
+      row.append(el("b", "", e.tool), el("code", "", where(e)), el("span", "st " + state));
+      ui.steps.append(row);
+    }
   }
 
   function showSummary() {
@@ -584,7 +615,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     backlog++;
     clearTimeout(doneTimer);
     if (done) setDone(false);
-    queue = queue.then(() => play(edits, next)).catch(() => {}).then(() => { backlog--; armDone(); });
+    queue = queue.then(() => play(edits, next)).catch((err) => { console.error("Sheet preview:", err); busy = 0; }).then(() => { backlog--; armDone(); });
     return queue;
   }
 
@@ -749,7 +780,11 @@ td.typed { animation: typed 320ms var(--ease) both; }
     render(P);
     setLive();
     // Steps from before the preview opened are counted and outlined, not replayed.
-    if (s.edits) history.push(...s.edits);
+    if (s.edits) {
+      history.push(...s.edits);
+      for (const e of s.edits) stepLog.push({ e, state: "ok" });
+      renderSteps();
+    }
     settle();
     startPolling();
   }

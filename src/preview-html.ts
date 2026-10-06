@@ -791,7 +791,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
     return r && r.r1 > r.r0 && r.c1 > r.c0 ? r : null;
   };
   function settle() {
-    const v = visible(changed() || P.highlight);
+    // On a tab the user picked there's no outline and no scrolling: Claude isn't working there right now.
+    const v = pinned ? null : visible(changed() || P.highlight);
     ui.cur.classList.remove("scan", "sweep");
     // The outline doesn't move the view: the last step already scrolled to what it changed (a new row at the
     // bottom, a chart off to the side), and jumping back to the top of a big outline would hide it.

@@ -3,7 +3,7 @@
 // show_range, hands the result to the widget, and forwards the widget's own preview_updates calls to the
 // same server process, while a scripted "Claude" makes reads and edits in the background with pauses.
 // Usage: npm run build && node scripts/preview-live.mjs <spreadsheet id or link> [account]
-//        then open http://localhost:4178/?s=build (scenarios: build, wide, long, tabs, fail, read, tidy, charts, errors, big, text, fill; &dark=1, &w=720)
+//        then open http://localhost:4178/?s=build (scenarios: build, wide, long, tabs, fail, read, demo, tidy, charts, errors, big, text, fill; &dark=1, &w=720)
 import { createServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -139,6 +139,26 @@ const SCENARIOS = {
     await think();
     await call("read_range", { range: "Sales!B2:B13", mode: "formulas" });
   },
+  // The README animation: a budget that's already there gets a profit column, totals, formatting and a chart.
+  // (Seeded by /reset?s=demo, outside the recording.)
+  async demo() {
+    await think(900);
+    await call("read_range", { range: "Sales!A1:C13" });
+    await think(1500);
+    await call("write_range", { range: "Sales!D1", values: [["Profit"], ...months.map((_, i) => [`=B${i + 2}-C${i + 2}`])] });
+    await think(1400);
+    await call("write_range", { range: "Sales!A14", values: [["Total", "=SUM(B2:B13)", "=SUM(C2:C13)", "=SUM(D2:D13)"]] });
+    await think(1300);
+    await call("format_ranges", { items: [
+      { range: "Sales!B2:D14", number_format: { type: "CURRENCY", pattern: "$#,##0" } },
+      { range: "Sales!A1:D1", bold: true, background_color: "#1f3864", text_color: "#ffffff" },
+      { range: "Sales!A14:D14", bold: true, borders: { sides: "top", style: "SOLID_MEDIUM" } },
+    ] });
+    await think(1200);
+    await call("freeze", { tab: "Sales", rows: 1 });
+    await think(1300);
+    await call("add_chart", { data_range: "Sales!A1:B13", chart_type: "COLUMN", title: "Revenue by month", anchor_cell: "Sales!E2" });
+  },
   // Tidying an existing table: sort, filter, dropdowns, find/replace, rows in and out, a merged title, undo.
   async tidy() {
     await think(800);
@@ -226,6 +246,12 @@ const SCENARIOS = {
   },
 };
 const SETUP = { tabs: ["Sales", "Orders"] };
+// Data a scenario starts from, written during /reset (so it isn't part of what the preview shows).
+const SEEDS = {
+  async demo() {
+    await call("write_range", { range: "Sales!A1", values: [["Month", "Revenue", "Cost"], ...months.map((m, i) => [m, 12000 + i * 1300 + (i % 3) * 900, 8000 + i * 400 + (i % 2) * 600])] });
+  },
+};
 
 let running = false;
 async function startScenario(name) {
@@ -251,7 +277,7 @@ const page = (q) => /* html */ `<!doctype html>
   iframe { width: 100%; border: 0; display: block; height: 80px; }
 </style></head><body><div class="col">
 <div class="you">${q.ask || "Can you set this up for me?"}</div>
-<div class="who">Widget from Sheets MCP <code>show_range</code></div>
+${q.clean ? "" : '<div class="who">Widget from Sheets MCP <code>show_range</code></div>'}
 <iframe id="w" sandbox="allow-scripts${q.debug ? " allow-same-origin" : ""}"></iframe>
 </div><script>
 const f = document.getElementById("w");
@@ -285,7 +311,14 @@ createServer(async (req, res) => {
     }
     if (url.pathname === "/reset") { // prepare the sheet before a run, outside the recording
       viaSetup = true;
-      try { await reset(SETUP.tabs); } finally { viaSetup = false; }
+      try {
+        await reset(SETUP.tabs);
+        const seed = SEEDS[url.searchParams.get("s")];
+        if (seed) await seed();
+        // ?title= renames the spreadsheet (the preview's header shows it), e.g. for a recording.
+        const title = url.searchParams.get("title");
+        if (title) await call("batch_update", { requests: [{ updateSpreadsheetProperties: { properties: { title }, fields: "title" } }] });
+      } finally { viaSetup = false; }
       return json({ ok: true });
     }
     if (url.pathname === "/show") {

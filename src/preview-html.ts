@@ -70,6 +70,7 @@ td { text-align: left; vertical-align: bottom; cursor: default; position: relati
 td.al-l { text-align: left; } td.al-c { text-align: center; } td.al-r { text-align: right; }
 td.va-t { vertical-align: top; } td.va-m { vertical-align: middle; }
 td.w { white-space: normal; overflow-wrap: anywhere; }
+td .wc { overflow: hidden; }
 td.ovf { overflow: visible; }
 /* Frozen rows and columns stay put while the rest scrolls, with Sheets' heavier line along their edge. */
 td.fz { position: sticky; z-index: 4; }
@@ -222,7 +223,15 @@ td.typed { animation: typed 320ms var(--ease) both; }
   const SIDES = ["Top", "Right", "Bottom", "Left"];
   function paint(td, cell, r, c) {
     if (ui && ui.covered.has(r + "," + c)) return; // hidden under a merged cell
-    td.textContent = cell.v;
+    td.textContent = "";
+    if (cell.w && cell.v) {
+      // Table rows grow to fit their content, but Sheets keeps the row height and clips wrapped text.
+      let h = 0;
+      for (let k = 0; k < (td.rowSpan || 1); k++) h += P && P.row_heights ? P.row_heights[r + k] ?? 21 : 21;
+      const box = el("div", "wc", cell.v);
+      box.style.maxHeight = Math.max(0, h - 2) + "px";
+      td.append(box);
+    } else td.textContent = cell.v;
     const al = cell.al || (cell.n ? "r" : "l");
     let cls = "al-" + al + (cell.w ? " w" : "") + (cell.va ? " va-" + cell.va : "");
     // Like Sheets, unwrapped left-aligned text spills into empty cells to its right.

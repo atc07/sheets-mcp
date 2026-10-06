@@ -45,7 +45,8 @@ const PAGE = /* html */ `<!doctype html>
     const rows = [];
     rows.push(["", { v: "Profit Options - with and without Santos", b: true, fs: 14 }, "", "", "", "", "", "", "", ""]);
     rows.push(["", { v: "Live: every number links to the model.", i: true, fg: "#666666", fs: 9 }, "", "", "", "", "", "", "", ""]);
-    rows.push(["", head("#"), head("Option"), head("Lever"), head("Start"), head("Without Santos"), head("With Santos"), head("FY27 impact"), head("Cash impact"), head("Difficulty")]);
+    // A wrapped label in a 16px column: the row must stay 21px with the text clipped, as in Sheets.
+    rows.push([{ v: "OPTIONS", b: true, w: true, va: "t" }, head("#"), head("Option"), head("Lever"), head("Start"), head("Without Santos"), head("With Santos"), head("FY27 impact"), head("Cash impact"), head("Difficulty")]);
     const opts = [["A1", "Cut sales discounts on hosting", "10.0%", "Jan-27", 2050950, 2050950, "Medium"], ["A2", "Raise customer hosting price", "$0.004", "Jan-27", 1192098, 1192098, "Medium"],
       ["A3", "Renegotiate host power rates", "$0.003", "Jan-27", 1071681, 1071681, "Hard"], ["A4", "Don't renew sites that lose money", "$0", "Nov-26", 504749, 559917, "Medium"],
       ["A5", "Reduce headcount", "15.0%", "Nov-26", 1512073, 1506745, "Medium"], ["A6", "Exit or sublease office space", "50.0%", "Jan-27", 358556, 358556, "Medium"],

@@ -64,6 +64,8 @@ code, pre { font-family: var(--mono); }
 .brand svg { width: 34px; height: 34px; overflow: visible; }
 .nav-links { display: flex; gap: 28px; font-size: 14px; }
 .nav-links a { color: var(--muted); text-decoration: none; transition: color 150ms ease; }
+.nav-links a.gh { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
+.nav-links a.gh svg { width: 16px; height: 16px; }
 @media (hover: hover) and (pointer: fine) {
   .nav-links a:hover { color: var(--fg); }
 }

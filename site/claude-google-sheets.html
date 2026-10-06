@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RBMZFPWV9Z"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    // Analytics on by default; off until the visitor opts in for EU/EEA/UK (Google applies the region list by IP).
+    gtag('consent', 'default', {
+      analytics_storage: 'granted',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+    });
+    gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+      region: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT',
+               'LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE',
+               'IS','LI','NO','GB']
+    });
+    // Replay a choice made in the consent banner (consent.js) on earlier visits.
+    try {
+      var smc = localStorage.getItem('sm_consent');
+      if (smc === 'granted' || smc === 'denied') gtag('consent', 'update', { analytics_storage: smc });
+    } catch (e) {}
+    gtag('js', new Date());
+
+    gtag('config', 'G-RBMZFPWV9Z');
+  </script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How to connect Claude to Google Sheets · Sheets MCP</title>
+  <meta name="description" content="Step-by-step: connect Claude to Google Sheets in about two minutes, then ask Claude to add formulas, format, chart and summarize your spreadsheets while you watch it work.">
+  <meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0e0d" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://sheetsmcp.io/claude-google-sheets">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Sheets MCP">
+  <meta property="og:title" content="How to connect Claude to Google Sheets · Sheets MCP">
+  <meta property="og:description" content="Step-by-step: connect Claude to Google Sheets in about two minutes, then ask Claude to add formulas, format, chart and summarize your spreadsheets while you watch it work.">
+  <meta property="og:url" content="https://sheetsmcp.io/claude-google-sheets">
+  <meta property="og:image" content="https://sheetsmcp.io/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Sheets MCP: Claude, working in your Google Sheets.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="How to connect Claude to Google Sheets · Sheets MCP">
+  <meta name="twitter:description" content="Step-by-step: connect Claude to Google Sheets in about two minutes, then ask Claude to add formulas, format, chart and summarize your spreadsheets while you watch it work.">
+  <meta name="twitter:image" content="https://sheetsmcp.io/og.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/consent.js" defer></script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Can Claude edit Google Sheets?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. With Sheets MCP installed, Claude can read your sheet and make changes directly in it: add rows, columns and formulas, format cells, sort and filter, add dropdowns, build and edit charts, and create pivot tables."}}, {"@type": "Question", "name": "Is it free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Sheets MCP is free and open source. You use it with your existing Claude account in Claude Desktop or Claude Code."}}, {"@type": "Question", "name": "Does Claude see all my Google Drive files?", "acceptedAnswer": {"@type": "Answer", "text": "No. Sheets MCP asks Google for access to spreadsheets only. It runs on your computer, your sign-in stays on your computer, and there is no Sheets MCP server in between."}}, {"@type": "Question", "name": "Does it work on claude.ai or on my phone?", "acceptedAnswer": {"@type": "Answer", "text": "Not yet. It works in the Claude desktop app on Mac and Windows, and in Claude Code."}}]}</script>
+</head>
+<body>
+<header class="wrap nav">
+  <a class="brand" href="/">
+    <svg viewBox="118 118 356 356" aria-hidden="true">
+<rect x="136" y="136" width="240" height="240" rx="22" fill="var(--logo)" fill-opacity=".12"/>
+<path d="M256 150V362M150 256H362" stroke="var(--logo)" stroke-opacity=".45" stroke-width="10"/>
+<rect x="136" y="136" width="240" height="240" rx="22" fill="none" stroke="var(--logo)" stroke-width="30"/>
+<path id="brand-spark" d="M372 286 C381.03 346.2 397.8 362.97 458 372 C397.8 381.03 381.03 397.8 372 458 C362.97 397.8 346.2 381.03 286 372 C346.2 362.97 362.97 346.2 372 286Z" fill="var(--logo)" stroke="var(--bg)" stroke-width="24" stroke-linejoin="round" paint-order="stroke"/></svg>
+    Sheets MCP
+  </a>
+  <nav class="nav-links">
+    <a href="/#install">Install</a>
+    <a href="/#faq">FAQ</a>
+    <a class="keep" href="/">Home</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <article class="prose">
+  <h1>How to connect Claude to Google Sheets</h1>
+  <p class="updated">About two minutes · Free · Mac and Windows</p>
+
+  <p>Claude can work directly in your Google Sheets: read what's there, add formulas and totals, clean up formatting, build charts and summarize data with pivot tables. You ask in plain language, and the changes appear in your spreadsheet. This guide sets that up with <a href="/">Sheets MCP</a>, a free add-on for Claude.</p>
+
+  <h2>What you need</h2>
+  <ul>
+    <li>The <a href="https://claude.ai/download">Claude desktop app</a> for Mac or Windows, signed in to your Claude account</li>
+    <li>A Google account with the spreadsheets you want to work on</li>
+  </ul>
+
+  <h2>Step 1: Install Sheets MCP</h2>
+  <ol>
+    <li><a href="/downloads/sheets-mcp.mcpb">Download Sheets MCP for Claude Desktop</a>.</li>
+    <li>Double-click the downloaded file. Claude Desktop opens an install screen.</li>
+    <li>Click <b>Install</b>.</li>
+  </ol>
+  <p>Using Claude Code in a terminal or IDE instead? Run <code>claude mcp add --scope user google-sheets -- npx -y @sheetsmcp/server</code> and start a new session.</p>
+
+  <h2>Step 2: Sign in with Google</h2>
+  <p>Paste a link to one of your spreadsheets into a new chat and ask Claude to summarize it. The first time, a Google sign-in page opens in your browser:</p>
+  <ol>
+    <li>Choose your Google account.</li>
+    <li>If Google shows "Google hasn't verified this app", click <b>Advanced</b>, then <b>Go to Sheets MCP</b>.</li>
+    <li>Click <b>Continue</b> to allow access to your spreadsheets.</li>
+  </ol>
+  <p>That's it. You only sign in once, and you can add more Google accounts later by asking Claude to "sign in to another Google account".</p>
+
+  <h2>Step 3: Ask Claude to work in your sheet</h2>
+  <ul>
+    <li>"Summarize this sheet: &lt;link&gt;"</li>
+    <li>"Add a Profit column that subtracts Cost from Revenue, with a total at the bottom, formatted as currency"</li>
+    <li>"Chart revenue by month next to the table"</li>
+    <li>"Summarize sales by region and product in a pivot table"</li>
+    <li>"Freeze the header row, bold it, and auto-fit the columns"</li>
+    <li>"Undo that"</li>
+  </ul>
+  <p>In Claude Desktop, Claude shows a live view of your sheet in the chat while it works, so you can watch each change happen. After the first time, you can ask for a sheet by name, like "open my budget sheet".</p>
+
+  <h2>Is it safe?</h2>
+  <p>Sheets MCP runs on your computer and talks to Google directly. Your Google sign-in is stored only on your computer, it asks for access to spreadsheets only (not the rest of your Drive), and there is no Sheets MCP server in between. Claude checks for broken formulas after each change, and "undo that" puts values back. Details are in the <a href="/privacy">privacy policy</a>.</p>
+
+  <h2>Common questions</h2>
+  <h3>Can Claude edit Google Sheets?</h3>
+  <p>Yes. With Sheets MCP installed, Claude can read your sheet and make changes directly in it: add rows, columns and formulas, format cells, sort and filter, add dropdowns, build and edit charts, and create pivot tables.</p>
+  <h3>Is it free?</h3>
+  <p>Yes. Sheets MCP is free and open source. You use it with your existing Claude account in Claude Desktop or Claude Code.</p>
+  <h3>Does Claude see all my Google Drive files?</h3>
+  <p>No. Sheets MCP asks Google for access to spreadsheets only. It runs on your computer, your sign-in stays on your computer, and there is no Sheets MCP server in between.</p>
+  <h3>Does it work on claude.ai or on my phone?</h3>
+  <p>Not yet. It works in the Claude desktop app on Mac and Windows, and in Claude Code.</p>
+
+  <p><a href="/">See everything Sheets MCP can do →</a></p>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Sheets MCP</span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/terms">Terms</a>
+      <a href="mailto:privacy@sheetsmcp.io">Contact</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

@@ -8,6 +8,8 @@ Let Claude read, edit, format and chart your Google Sheets. Ask for a new column
 
 Free and open source · Runs on your computer · Works in Claude Desktop and Claude Code
 
+If Sheets MCP saves you time, a ⭐ on GitHub helps other people find it.
+
 ## Install
 
 ### Claude Desktop (easiest, no setup)
@@ -87,4 +89,4 @@ npx @sheetsmcp/server accounts remove <email>   # sign out an account
 
 - **[sheetsmcp.io](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=footer)**: full feature list, demo, setup guide and FAQ
 - [Privacy policy](https://sheetsmcp.io/privacy) · [Terms](https://sheetsmcp.io/terms)
-- Questions or bugs: [open an issue](https://github.com/atc07/holy-sheets/issues)
+- Questions or bugs: [open an issue](https://github.com/atc07/sheets-mcp/issues)

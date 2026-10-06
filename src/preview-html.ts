@@ -110,6 +110,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .cur { position: absolute; z-index: 6; left: 0; top: 0; width: 0; height: 0; border: 2px solid var(--claude); border-radius: 2px; background: var(--claude-soft); pointer-events: none; opacity: 0;
   transition: transform 450ms var(--ease), width 450ms var(--ease), height 450ms var(--ease), opacity 200ms ease; }
 .cur.on { opacity: 1; }
+.cur.snap { transition: none; }
 /* At rest the outline barely tints, so the sheet's own colors read through. */
 .cur.settled { background: rgba(217,119,87,.04); }
 .cur span { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; background: var(--claude); color: #fff; font-size: calc(10.5px / var(--zoom, 1)); font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
@@ -425,21 +426,21 @@ td.typed { animation: typed 320ms var(--ease) both; }
   // brings the view back to wherever Claude is working.
   // A tab the user picks stays shown (Claude's dot marks where it's working) until they click Claude's tab.
   let pinned = null, rushing = false; // rushing: a tab switch is waiting, so finish the animation quickly
-  function switchTab(title, byUser = true) {
+  function switchTab(title, byUser = true, around = null) {
     if (!canPoll || !P || switching || title === P.tab) return Promise.resolve();
     switching = title;
     pinned = byUser ? title : null;
     for (const b of ui.tabs.children) b.classList.toggle("busy", b.dataset.tab === title);
     rushing = true;
     // In the queue, so an animation still typing into the old tab finishes before the grid is replaced.
-    queue = queue.then(() => showTab(title)).catch((err) => console.error("Sheet preview:", err));
+    queue = queue.then(() => showTab(title, around)).catch((err) => console.error("Sheet preview:", err));
     return queue;
   }
-  async function showTab(title) {
+  async function showTab(title, around) {
     rushing = false;
     const quoted = /^[A-Za-z_][A-Za-z0-9_]*$/.test(title) ? title : "'" + title.replace(/'/g, "''") + "'";
     try {
-      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: quoted + "!A1:Z100", peek: true, since: seq, ...(account && { account }) } });
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: quoted + "!" + windowAround(around), peek: true, since: seq, ...(account && { account }) } });
       const s = r && !r.isError && r.structuredContent;
       switching = null;
       if (s && s.preview) {
@@ -685,7 +686,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     return r1 >= r0 && c1 >= c0 ? { r0, c0, r1, c1 } : null;
   }
 
-  function moveCursor(v, scrollTo) {
+  function moveCursor(v, scrollTo, instant) {
     const a = ui.cells[v.r0][v.c0], b = ui.cells[v.r1][v.c1];
     const w = ui.wrap.getBoundingClientRect(), ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
     // Rects are measured on screen (zoomed); the outline is placed inside the zoomed grid, so it's unzoomed.
@@ -703,7 +704,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
       if (!(fz && v.r1 < fz.rows) && (top < s.scrollTop || bottom > s.scrollTop + s.clientHeight)) toTop = Math.max(0, top);
       if (!(fz && v.c1 < fz.cols) && (left < s.scrollLeft || right > s.scrollLeft + s.clientWidth)) toLeft = Math.max(0, right - s.clientWidth > left ? left : right - s.clientWidth);
       // One scroll for both directions: with smooth scrolling, a second assignment cancels the first one mid-flight.
-      if (toTop !== s.scrollTop || toLeft !== s.scrollLeft) s.scrollTo({ top: toTop, left: toLeft });
+      if (toTop !== s.scrollTop || toLeft !== s.scrollLeft) s.scrollTo({ top: toTop, left: toLeft, ...(instant && { behavior: "instant" }) });
     }
   }
 
@@ -837,22 +838,28 @@ td.typed { animation: typed 320ms var(--ease) both; }
       b.title = here ? "Claude is working here: click to see where" : b.classList.contains("on") ? "Shown now" : "Show " + b.dataset.tab;
     }
   }
+  // The rows to load for a tab: the top, or around where Claude is working when that's further down.
+  function windowAround(r) {
+    if (!r || r.r1 <= 100) return "A1:" + col(Math.max(25, r ? r.c1 + 1 : 25)) + "100";
+    return "A" + Math.max(1, r.r0 - 40) + ":" + col(Math.max(25, r.c1 + 1)) + (r.r1 + 20);
+  }
   async function focusClaude() {
     const at = aiAt;
     if (!at || !P) return;
     pinned = null;
-    if (P.tab !== at.tab) await switchTab(at.tab, false);
+    const back = P.tab !== at.tab;
+    if (back) await switchTab(at.tab, false, at.rect);
     if (!P || P.tab !== at.tab) return;
     if (done) { keepOpen = true; setDone(false); }
     const v = visible(at.rect);
     if (!v) return;
-    ui.cur.classList.remove("settled");
-    moveCursor(v, true);
+    // Coming back to Claude's tab, the outline is simply where Claude is, as if the view never left:
+    // no slide in from the corner, no flash. On the same tab it glides over to it.
+    if (!done) ui.cur.classList.remove("settled");
+    if (back) ui.cur.classList.add("snap");
+    moveCursor(v, true, back);
     select(v.r0, v.c0, false);
-    for (let r = v.r0; r <= v.r1; r++) for (let c = v.c0; c <= v.c1; c++) {
-      const td = ui.cells[r][c];
-      td.classList.remove("flash"); void td.offsetWidth; td.classList.add("flash");
-    }
+    if (back) { void ui.cur.offsetWidth; ui.cur.classList.remove("snap"); }
   }
 
   // ---------- animation ----------

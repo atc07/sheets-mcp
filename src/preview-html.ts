@@ -61,14 +61,25 @@ body { font: 13px/1.4 var(--font); color: var(--fg); padding: 2px; }
 table { border-collapse: collapse; table-layout: fixed; font-family: Arial, Helvetica, sans-serif; font-size: 13.3px; font-variant-numeric: tabular-nums; }
 th, td { height: 21px; padding: 0 4px 2px; box-shadow: inset -1px -1px 0 var(--grid); white-space: nowrap; overflow: hidden; line-height: 1.2; }
 table.nogrid td { box-shadow: none; }
-thead th { position: sticky; top: 0; z-index: 4; height: 24px; padding: 0; font: 500 11px var(--font); color: var(--faint); background: var(--surface-2); text-align: center; vertical-align: middle; }
-th.rn { position: sticky; left: 0; z-index: 4; width: 42px; padding: 0; font: 500 11px var(--font); color: var(--faint); background: var(--surface-2); text-align: center; vertical-align: middle; }
-thead th.rn { z-index: 5; }
+thead th { position: sticky; top: 0; z-index: 9; height: 24px; padding: 0; font: 500 11px var(--font); color: var(--faint); background: var(--surface-2); text-align: center; vertical-align: middle; }
+th.rn { position: sticky; left: 0; z-index: 7; width: 42px; padding: 0; font: 500 11px var(--font); color: var(--faint); background: var(--surface-2); text-align: center; vertical-align: middle; }
+thead th.fz { left: 0; z-index: 10; }
+thead th.rn { z-index: 11; }
+th.rn.fz { z-index: 8; }
 td { text-align: left; vertical-align: bottom; cursor: default; position: relative; }
 td.al-l { text-align: left; } td.al-c { text-align: center; } td.al-r { text-align: right; }
 td.va-t { vertical-align: top; } td.va-m { vertical-align: middle; }
 td.w { white-space: normal; overflow-wrap: anywhere; }
 td.ovf { overflow: visible; }
+/* Frozen rows and columns stay put while the rest scrolls, with Sheets' heavier line along their edge. */
+td.fz { position: sticky; z-index: 4; }
+td.fz.fzb { z-index: 5; }
+td.fzr-end, th.fzr-end { box-shadow: inset -1px -1px 0 var(--grid), inset 0 -2px 0 #c2c2c2; }
+td.fzc-end, th.fzc-end { box-shadow: inset -1px -1px 0 var(--grid), inset -2px 0 0 #c2c2c2; }
+td.fzr-end.fzc-end, th.fzr-end.fzc-end { box-shadow: inset -1px -1px 0 var(--grid), inset 0 -2px 0 #c2c2c2, inset -2px 0 0 #c2c2c2; }
+table.nogrid td.fzr-end { box-shadow: inset 0 -2px 0 #c2c2c2; }
+table.nogrid td.fzc-end { box-shadow: inset -2px 0 0 #c2c2c2; }
+table.nogrid td.fzr-end.fzc-end { box-shadow: inset 0 -2px 0 #c2c2c2, inset -2px 0 0 #c2c2c2; }
 .charts { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .chart { position: absolute; background: #fff; outline: 1px solid #d9d9d9; outline-offset: -1px; overflow: hidden; }
 .chart svg { display: block; }
@@ -86,7 +97,7 @@ td.flash::after { content: ""; position: absolute; inset: 0; background: var(--c
 td.typed { animation: typed 320ms var(--ease) both; }
 @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
 @keyframes typed { from { opacity: 0; transform: translateY(3px); } }
-.cur { position: absolute; z-index: 3; left: 0; top: 0; width: 0; height: 0; border: 2px solid var(--claude); border-radius: 2px; background: var(--claude-soft); pointer-events: none; opacity: 0;
+.cur { position: absolute; z-index: 6; left: 0; top: 0; width: 0; height: 0; border: 2px solid var(--claude); border-radius: 2px; background: var(--claude-soft); pointer-events: none; opacity: 0;
   transition: transform 450ms var(--ease), width 450ms var(--ease), height 450ms var(--ease), opacity 200ms ease; }
 .cur.on { opacity: 1; }
 .cur span { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; background: var(--claude); color: #fff; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
@@ -108,8 +119,17 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .st.run::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--claude); border-right-color: transparent; animation: spin .7s linear infinite; }
 .st.ok { border-radius: 50%; background: var(--accent); color: var(--surface); }
 .st.ok::before { content: ""; width: 6px; height: 3px; border: solid currentColor; border-width: 0 0 1.6px 1.6px; transform: translateY(-1px) rotate(-45deg); }
+.st.fail::before { content: "×"; color: var(--faint); font: 700 15px/1 var(--font); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .count { flex: none; }
+/* The tab strip, like the one along the bottom of Sheets: click a tab to look at it. */
+.tabs { display: flex; gap: 2px; padding: 4px 8px 0; overflow-x: auto; scrollbar-width: none; background: var(--surface-2); box-shadow: inset 0 1px 0 var(--grid); }
+.tabs::-webkit-scrollbar { display: none; }
+.tb { flex: none; max-width: 170px; font: 500 12px/1 var(--font); color: var(--muted); background: none; border: 0; border-radius: 7px 7px 0 0; padding: 8px 12px 9px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb:hover { color: var(--fg); background: rgba(128,128,128,.12); }
+.tb.on { color: var(--accent); background: var(--surface); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.tb.busy { opacity: .55; }
+.tb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* The steps list: one row per read or edit, like Claude's own tool rows. */
 .steps { display: grid; gap: 6px; padding: 10px 12px 12px; box-shadow: inset 0 1px 0 var(--grid); }
 .steps:empty { display: none; }
@@ -119,6 +139,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .srow code { font: 11.5px/1.2 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srow.read b { font-weight: 500; color: var(--muted); }
 .srow.run { background: var(--claude-soft); box-shadow: inset 0 0 0 1px var(--claude); }
+.srow.fail { opacity: .7; }
+.srow.fail b { text-decoration: line-through; text-decoration-color: var(--faint); }
 .srow .st { justify-self: end; width: 16px; height: 16px; }
 .srow .st.ok::before { width: 7px; height: 3.5px; border-width: 0 0 1.8px 1.8px; }
 .smore { font-size: 11.5px; color: var(--muted); padding: 0 2px; }
@@ -172,9 +194,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
   let account;
   let canPoll = false;   // host lets the app call server tools
   let seq = 0;           // last edit seen
-  const history = [];    // every step so far (reads and edits), for the summary
+  const history = [];    // every finished step so far (reads and edits), for the summary
   let liveSteps = 0;     // steps animated live (not ones that happened before the preview opened)
-  const stepLog = [];    // rows for the steps list: { e, state: "run" | "ok" }
+  const stepLog = [];    // rows for the steps list: { e, state: "run" | "ok" | "fail", at }
   const MAX_ROWS_SHOWN = 4;
   let done = false, keepOpen = false, doneTimer;
   let queue = Promise.resolve();
@@ -182,6 +204,12 @@ td.typed { animation: typed 320ms var(--ease) both; }
   let ui;                // DOM handles for the current preview
   let toolArgs = {};     // show_range's arguments, from ui/notifications/tool-input
   let backlog = 0;       // batches waiting to animate, so a pile-up plays faster
+  let switching = null;  // tab the user asked for, while it loads
+
+  // Plain text cells travel as bare strings; give every cell the same shape here.
+  const inflate = (p) => { if (p && p.rows) p.rows = p.rows.map((row) => row.map((c) => (typeof c === "string" ? { v: c } : c))); return p; };
+  const stepId = (e) => (e.id != null ? e.id : e.seq);
+  const running = () => stepLog.some((r) => r.state === "run");
 
   function applyContext(ctx) {
     if (!ctx) return;
@@ -202,9 +230,22 @@ td.typed { animation: typed 320ms var(--ease) both; }
       const next = P.rows[r][c + 1];
       if (!next || (!next.v && !(ui && ui.covered.has(r + "," + (c + 1))))) cls += " ovf";
     }
-    td.className = cls;
     const st = td.style;
     st.cssText = "";
+    // Frozen panes: pinned with sticky offsets (the row numbers' column and the header are 42px and 24px).
+    const fz = ui && ui.frozen;
+    if (fz) {
+      const fr = r < fz.rows, fc = c < fz.cols;
+      if (fr || fc) {
+        cls += " fz" + (fr && fc ? " fzb" : "");
+        if (fr) st.top = fz.tops[r] + "px";
+        if (fc) st.left = fz.lefts[c] + "px";
+        if (!cell.bg) st.background = "#fff";
+      }
+      if (fr && r === fz.rows - 1) cls += " fzr-end";
+      if (fc && c === fz.cols - 1) cls += " fzc-end";
+    }
+    td.className = cls;
     if (cell.b) st.fontWeight = "700";
     if (cell.i) st.fontStyle = "italic";
     if (cell.s || cell.u) st.textDecoration = [cell.s && "line-through", cell.u && "underline"].filter(Boolean).join(" ");
@@ -221,7 +262,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
   }
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const sameShape = (a, b) => a && b && a.tab === b.tab && a.start_row === b.start_row && a.start_col === b.start_col && a.rows.length === b.rows.length &&
-    same(a.col_widths, b.col_widths) && same(a.row_heights, b.row_heights) && same(a.merges, b.merges) && a.hide_gridlines === b.hide_gridlines;
+    same(a.col_widths, b.col_widths) && same(a.row_heights, b.row_heights) && same(a.merges, b.merges) && a.hide_gridlines === b.hide_gridlines &&
+    a.frozen_rows === b.frozen_rows && a.frozen_cols === b.frozen_cols && same(a.tabs, b.tabs);
 
   function render(p, entering) {
     card.textContent = "";
@@ -236,7 +278,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
     open.innerHTML = OPEN;
     open.append("Open in Sheets");
     open.addEventListener("click", () => request("ui/open-link", { url: P.url }).catch(() => window.open(P.url, "_blank", "noopener")));
-    bar.append(el("span", "t", p.title), el("span", "tab", p.tab), el("span", "sp"), live, open);
+    const hasStrip = p.tabs && p.tabs.some((t) => !t.hidden);
+    bar.append(el("span", "t", p.title), ...(hasStrip ? [] : [el("span", "tab", p.tab)]), el("span", "sp"), live, open);
 
     const fbar = el("div", "fbar");
     const ref = el("div", "ref"), val = el("div", "val");
@@ -253,6 +296,20 @@ td.typed { animation: typed 320ms var(--ease) both; }
     hr.append(el("th", "rn"));
     p.col_widths.forEach((_, c) => hr.append(el("th", "", col(p.start_col + c))));
     head.append(hr);
+    // Frozen panes only apply when the view starts at the sheet's edge, like in Sheets itself.
+    const fzRows = p.start_row === 0 ? Math.min(p.frozen_rows || 0, p.rows.length) : 0;
+    const fzCols = p.start_col === 0 ? Math.min(p.frozen_cols || 0, p.col_widths.length) : 0;
+    let frozen = null;
+    if (fzRows || fzCols) {
+      const tops = [24], lefts = [42];
+      for (let r = 1; r < fzRows; r++) tops.push(tops[r - 1] + (p.row_heights ? p.row_heights[r - 1] : 21));
+      for (let c = 1; c < fzCols; c++) lefts.push(lefts[c - 1] + Math.max(4, p.col_widths[c - 1]));
+      const rh = (r) => (p.row_heights ? p.row_heights[r] : 21), cw = (c) => Math.max(4, p.col_widths[c]);
+      // h and w: where the panes end, so scrolling keeps the cursor out from under them.
+      frozen = { rows: fzRows, cols: fzCols, tops, lefts, h: fzRows ? tops[fzRows - 1] + rh(fzRows - 1) : 24, w: fzCols ? lefts[fzCols - 1] + cw(fzCols - 1) : 42 };
+      // The letters above frozen columns stay with them.
+      for (let c = 0; c < fzCols; c++) { const th = hr.children[c + 1]; th.classList.add("fz"); th.style.left = lefts[c] + "px"; if (c === fzCols - 1) th.classList.add("fzc-end"); }
+    }
     // Merged blocks: the top-left cell spans the block; the rest aren't drawn but point at it.
     const anchorOf = new Map(), covered = new Set();
     for (const m of p.merges || []) {
@@ -263,12 +320,14 @@ td.typed { animation: typed 320ms var(--ease) both; }
         anchorOf.set(r + "," + c, [mr0, mc0]);
       }
     }
-    ui = { covered };
+    ui = { covered, frozen };
     const body = el("tbody");
     const cells = p.rows.map((row, r) => {
       const tr = el("tr");
       tr.style.height = (p.row_heights ? p.row_heights[r] : 21) + "px";
-      tr.append(el("th", "rn", String(p.start_row + r + 1)));
+      const rn = el("th", "rn", String(p.start_row + r + 1));
+      if (frozen && r < frozen.rows) { rn.classList.add("fz"); rn.style.top = frozen.tops[r] + "px"; if (r === frozen.rows - 1) rn.classList.add("fzr-end"); }
+      tr.append(rn);
       const tds = row.map((cell, c) => {
         if (covered.has(r + "," + c)) return null;
         const td = el("td");
@@ -301,13 +360,45 @@ td.typed { animation: typed 320ms var(--ease) both; }
     if (entering) wrap.classList.add("enter");
     const fold = el("div", "body"), inner = el("div");
     const steps = el("div", "steps");
-    inner.append(fbar, scroll, steps);
+    const tabs = el("div", "tabs");
+    for (const t of hasStrip ? p.tabs : []) {
+      if (t.hidden) continue;
+      const b = el("button", "tb" + (t.title === p.tab ? " on" : "") + (t.title === switching ? " busy" : ""), t.title);
+      b.type = "button";
+      b.title = t.title === p.tab ? "Shown now" : "Show " + t.title;
+      b.addEventListener("click", () => switchTab(t.title));
+      tabs.append(b);
+    }
+    inner.append(fbar, scroll, ...(hasStrip ? [tabs] : []), steps);
     fold.append(inner);
     card.classList.toggle("done", done);
     card.append(bar, fold, foot);
-    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, steps, selected: null };
+    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, frozen, steps, tabs, selected: null };
     renderSteps();
     renderCharts();
+  }
+
+  // The user picked a tab in the strip: fetch that tab as it is now and show it. Claude's next edit
+  // brings the view back to wherever Claude is working.
+  async function switchTab(title) {
+    if (!canPoll || !P || switching || title === P.tab) return;
+    switching = title;
+    for (const b of ui.tabs.children) b.classList.toggle("busy", b.textContent === title);
+    const quoted = /^[A-Za-z_][A-Za-z0-9_]*$/.test(title) ? title : "'" + title.replace(/'/g, "''") + "'";
+    try {
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: quoted + "!A1:Z100", peek: true, since: seq, ...(account && { account }) } });
+      const s = r && !r.isError && r.structuredContent;
+      switching = null;
+      if (s && s.preview) {
+        keepOpen = true;
+        if (done) setDone(false);
+        P = inflate(s.preview);
+        render(P, true);
+        settle();
+      }
+    } catch {}
+    switching = null;
+    if (ui && ui.tabs) for (const b of ui.tabs.children) b.classList.remove("busy");
   }
 
   // ---------- charts ----------
@@ -532,27 +623,33 @@ td.typed { animation: typed 320ms var(--ease) both; }
     ui.cur.classList.toggle("top", v.r0 === 0);
     ui.cur.classList.add("on");
     if (scrollTo) {
-      // Keep the cursor in view both ways (the row numbers and header stay pinned).
-      const s = ui.scroll;
-      const top = y - 40, bottom = y + (rb.bottom - ra.top) + 40;
-      if (top < s.scrollTop || bottom > s.scrollTop + s.clientHeight) s.scrollTop = Math.max(0, top);
-      const left = x - 42 - 24, right = x + (rb.right - ra.left) + 24;
-      if (left < s.scrollLeft || right > s.scrollLeft + s.clientWidth) s.scrollLeft = Math.max(0, right - s.clientWidth > left ? left : right - s.clientWidth);
+      // Keep the cursor in view both ways, clear of the header, row numbers and any frozen panes (which stay pinned).
+      const s = ui.scroll, fz = ui.frozen;
+      const padT = fz ? fz.h : 24, padL = fz ? fz.w : 42;
+      const top = y - padT - 16, bottom = y + (rb.bottom - ra.top) + 24;
+      if (!(fz && v.r1 < fz.rows) && (top < s.scrollTop || bottom > s.scrollTop + s.clientHeight)) s.scrollTop = Math.max(0, top);
+      const left = x - padL - 24, right = x + (rb.right - ra.left) + 24;
+      if (!(fz && v.c1 < fz.cols) && (left < s.scrollLeft || right > s.scrollLeft + s.clientWidth)) s.scrollLeft = Math.max(0, right - s.clientWidth > left ? left : right - s.clientWidth);
     }
   }
 
-  const WRITES = new Set(["write_range", "append_rows"]);
-  const VERBS = { read_range: "Reading", get_spreadsheet_info: "Looking over", write_range: "Writing", append_rows: "Adding rows", clear_range: "Clearing", find_replace: "Replacing", format_range: "Formatting",
-    add_conditional_format: "Adding color rules", sort_range: "Sorting", set_filter: "Filtering", set_data_validation: "Adding dropdowns", add_chart: "Adding a chart", freeze: "Freezing", resize_columns: "Resizing",
-    merge_cells: "Merging", manage_tab: "Updating tabs", insert_rows_or_columns: "Inserting", delete_rows_or_columns: "Deleting", undo_last: "Undoing", batch_update: "Updating" };
+  const WRITES = new Set(["write_range", "append_rows", "fill_range"]);
+  const VERBS = { read_range: "Reading", read_ranges: "Reading", get_spreadsheet_info: "Looking over", write_range: "Writing", fill_range: "Filling", append_rows: "Adding rows", clear_range: "Clearing", find_replace: "Replacing",
+    format_range: "Formatting", format_ranges: "Formatting", add_conditional_format: "Adding color rules", sort_range: "Sorting", set_filter: "Filtering", set_data_validation: "Adding dropdowns", add_chart: "Adding a chart",
+    update_chart: "Updating a chart", delete_chart: "Removing a chart", add_pivot_table: "Adding a pivot table", freeze: "Freezing", resize_columns: "Resizing", merge_cells: "Merging", manage_tab: "Updating tabs",
+    insert_rows_or_columns: "Inserting", delete_rows_or_columns: "Deleting", undo_last: "Undoing", batch_update: "Updating" };
   const where = (e) => (e.a1 ? (e.tab ? e.tab + "!" : "") + e.a1 : e.tab || "");
-  // The current step shows as a highlighted row in the steps list; the footer just says Claude is at work.
+  // Each step has one row in the steps list, keyed by id: it appears when the tool starts and
+  // settles when it finishes. The footer just says what Claude is doing.
   function showStep(state, e) {
-    if (state === "run") stepLog.push({ e, state });
-    else { const row = stepLog.findLast((x) => x.e === e); if (row) row.state = "ok"; }
+    const row = stepLog.find((x) => stepId(x.e) === stepId(e));
+    if (row) { row.state = state; row.e = e; row.at = Date.now(); }
+    else stepLog.push({ e, state, at: Date.now() });
     renderSteps();
     ui.step.textContent = "";
-    ui.step.append(el("span", "st " + state), el("span", "", state === "run" ? (VERBS[e.tool] || "Working") + "…" : "Done"));
+    const label = state === "run" ? (VERBS[e.tool] || "Working") + "…" : state === "fail" ? "Didn't finish" : "Done";
+    ui.step.append(el("span", "st " + state), el("span", "", label));
+    setLive();
   }
   function renderSteps() {
     if (!ui || !ui.steps) return;
@@ -595,10 +692,12 @@ td.typed { animation: typed 320ms var(--ease) both; }
 
   // Claude has no "finished" signal, so fold the preview down once it goes quiet:
   // shortly after the last step, or after a while if it never touched the sheet.
-  const QUIET_MS = 12_000, NEVER_STARTED_MS = 90_000;
+  const QUIET_MS = 12_000, NEVER_STARTED_MS = 90_000, STUCK_MS = 60_000;
   function armDone() {
     clearTimeout(doneTimer);
     if (done || keepOpen || busy || backlog) return;
+    // A step that's still running keeps the sheet open (unless it's been stuck for a minute).
+    if (stepLog.some((r) => r.state === "run" && Date.now() - r.at < STUCK_MS)) { doneTimer = setTimeout(armDone, 2000); return; }
     doneTimer = setTimeout(() => { if (!busy && !backlog) setDone(true); }, liveSteps ? QUIET_MS : NEVER_STARTED_MS);
   }
   function setDone(on) {
@@ -624,11 +723,13 @@ td.typed { animation: typed 320ms var(--ease) both; }
     busy++;
     setLive();
     let deferred = null;
+    // Only finished edits have changed cells; steps that just started (or failed) have nothing to type in.
+    const finished = edits.filter((e) => !e.pending && !e.failed);
     if (next && sameShape(P, next)) {
       deferred = [];
       next.rows.forEach((row, r) => row.forEach((cell, c) => {
         if (same(cell, P.rows[r][c])) return;
-        const inEdit = edits.some((e) => e.tab === next.tab && e.rect && r + next.start_row >= e.rect.r0 && r + next.start_row < e.rect.r1 && c + next.start_col >= e.rect.c0 && c + next.start_col < e.rect.c1);
+        const inEdit = finished.some((e) => e.tab === next.tab && e.rect && r + next.start_row >= e.rect.r0 && r + next.start_row < e.rect.r1 && c + next.start_col >= e.rect.c0 && c + next.start_col < e.rect.c1);
         if (inEdit) deferred.push({ r, c, cell });
         else paint(ui.cells[r][c], cell, r, c);
       }));
@@ -643,7 +744,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
       setLive();
       // New layout, so there's nothing to diff against: start cells Claude wrote in this batch blank and type them in.
       deferred = [];
-      for (const e of edits) {
+      for (const e of finished) {
         if (e.kind === "read" || !WRITES.has(e.tool) || e.tab !== P.tab) continue;
         const v = visible(e.rect);
         if (!v) continue;
@@ -655,9 +756,30 @@ td.typed { animation: typed 320ms var(--ease) both; }
         }
       }
     }
-    // Catch up quickly when steps pile up (bursts of reads).
-    const fast = backlog > 1 || edits.length > 3;
+    // Pace each step by how much is waiting: a lone edit plays in full, a pile-up catches up quickly.
+    let i = 0;
+    const pace = () => (backlog > 2 ? 0.25 : backlog > 1 || edits.length - i > 3 ? 0.45 : 1);
+    const d = (ms) => sleep(Math.round(ms * pace()));
     for (const e of edits) {
+      i++;
+      if (e.pending) {
+        // Just started: its row appears and the cursor goes to where it's about to work.
+        showStep("run", e);
+        const v = e.tab === P.tab ? visible(e.rect) : null;
+        if (v) {
+          ui.cur.classList.toggle("scan", e.kind === "read");
+          ui.cur.classList.remove("sweep");
+          moveCursor(v, true);
+          select(v.r0, v.c0, false);
+        }
+        await d(120);
+        continue;
+      }
+      if (e.failed) {
+        showStep("fail", e);
+        await d(120);
+        continue;
+      }
       showStep("run", e);
       const v = e.tab === P.tab ? visible(e.rect) : null;
       if (v && e.kind === "read") {
@@ -665,42 +787,42 @@ td.typed { animation: typed 320ms var(--ease) both; }
         ui.cur.classList.remove("sweep");
         moveCursor(v, true);
         select(v.r0, v.c0, false);
-        await sleep(fast ? 220 : 380);
-        ui.cur.style.setProperty("--sweep", (fast ? 380 : 750) + "ms");
+        await d(380);
+        ui.cur.style.setProperty("--sweep", Math.round(750 * pace()) + "ms");
         void ui.cur.offsetWidth;
         ui.cur.classList.add("sweep");
-        await sleep(fast ? 400 : 780);
+        await d(780);
         history.push(e);
         liveSteps++;
         showStep("ok", e);
-        await sleep(fast ? 60 : 160);
+        await d(160);
         continue;
       }
       ui.cur.classList.remove("scan", "sweep");
       if (v) {
         moveCursor(v, true);
         select(v.r0, v.c0, false);
-        await sleep(fast ? 260 : 420);
-        const todo = deferred ? deferred.filter((d) => d.r >= v.r0 && d.r <= v.r1 && d.c >= v.c0 && d.c <= v.c1) : [];
+        await d(420);
+        const todo = deferred ? deferred.filter((x) => x.r >= v.r0 && x.r <= v.r1 && x.c >= v.c0 && x.c <= v.c1) : [];
         const tds = [];
         for (let r = v.r0; r <= v.r1; r++) for (let c = v.c0; c <= v.c1; c++) tds.push({ r, c });
-        const gap = Math.min(fast ? 20 : 45, (fast ? 350 : 700) / Math.max(1, tds.length));
+        const gap = Math.min(45, 700 / Math.max(1, tds.length)) * pace();
         for (const t of tds) {
           const td = ui.cells[t.r][t.c];
-          const d = todo.find((x) => x.r === t.r && x.c === t.c);
-          if (d) { P.rows[d.r][d.c] = d.cell; paint(td, d.cell, d.r, d.c); td.classList.add("typed"); deferred.splice(deferred.indexOf(d), 1); }
+          const x = todo.find((y) => y.r === t.r && y.c === t.c);
+          if (x) { P.rows[x.r][x.c] = x.cell; paint(td, x.cell, x.r, x.c); td.classList.add("typed"); deferred.splice(deferred.indexOf(x), 1); }
           td.classList.remove("flash"); void td.offsetWidth; td.classList.add("flash");
           if (gap >= 4) await sleep(gap);
         }
         select(v.r0, v.c0, false);
-        await sleep(fast ? 200 : 380);
+        await d(380);
       } else {
-        await sleep(fast ? 250 : 500);
+        await d(500);
       }
       history.push(e);
       liveSteps++;
       showStep("ok", e);
-      await sleep(fast ? 60 : 150);
+      await d(150);
     }
     // Anything a recalculation changed outside the animated ranges.
     if (deferred) for (const d of deferred) { P.rows[d.r][d.c] = d.cell; paint(ui.cells[d.r][d.c], d.cell, d.r, d.c); }
@@ -711,17 +833,20 @@ td.typed { animation: typed 320ms var(--ease) both; }
   }
 
   // ---------- live updates ----------
+  // Polls are cheap when nothing happened (the server answers from memory), so they come fast while
+  // Claude is at work and ease off as the sheet goes quiet.
   let timer, lastEditAt = Date.now(), failures = 0, polling = false;
-  const FAST = 1000, SLOW = 3000, IDLE_SLOW = 60_000, IDLE_STOP = 10 * 60_000;
+  const FAST = 600, MID = 1500, SLOW = 3000, ACTIVE_MS = 10_000, IDLE_SLOW = 60_000, IDLE_STOP = 10 * 60_000;
 
   function setLive() {
     if (!ui) return;
+    const working = busy > 0 || running();
     ui.live.classList.toggle("on", canPoll);
-    ui.live.classList.toggle("busy", busy > 0);
-    ui.live.classList.toggle("polling", polling && !busy);
-    ui.live.classList.toggle("paused", canPoll && !polling && !busy && !done);
-    ui.live.classList.toggle("done", done && !busy);
-    ui.live.lastChild.textContent = busy ? "Editing" : done ? "Done" : polling ? "Live" : "Paused";
+    ui.live.classList.toggle("busy", working);
+    ui.live.classList.toggle("polling", polling && !working);
+    ui.live.classList.toggle("paused", canPoll && !polling && !working && !done);
+    ui.live.classList.toggle("done", done && !working);
+    ui.live.lastChild.textContent = busy ? "Editing" : running() ? "Working" : done ? "Done" : polling ? "Live" : "Paused";
     ui.live.title = polling ? "Updating as Claude edits this sheet" : "Click to keep watching for edits";
   }
 
@@ -749,12 +874,13 @@ td.typed { animation: typed 320ms var(--ease) both; }
       if (u.seq > seq) seq = u.seq;
       if (u.edits && u.edits.length) {
         lastEditAt = Date.now();
-        enqueue(u.edits, u.preview || null);
+        enqueue(u.edits, u.preview ? inflate(u.preview) : null);
       }
     } catch {
       if (++failures >= 3) return stopPolling();
     }
-    schedule(Date.now() - lastEditAt > IDLE_SLOW ? SLOW : FAST);
+    const quiet = Date.now() - lastEditAt;
+    schedule(running() || quiet < ACTIVE_MS ? FAST : quiet > IDLE_SLOW ? SLOW : MID);
   }
 
   // ---------- startup ----------
@@ -774,15 +900,17 @@ td.typed { animation: typed 320ms var(--ease) both; }
       return unavailable(why);
     }
     card.classList.remove("skel");
-    P = s.preview;
+    P = inflate(s.preview);
     account = s.account;
     seq = s.seq || 0;
     render(P);
     setLive();
-    // Steps from before the preview opened are counted and outlined, not replayed.
+    // Steps from before the preview opened are counted and outlined, not replayed; one still running shows as such.
     if (s.edits) {
-      history.push(...s.edits);
-      for (const e of s.edits) stepLog.push({ e, state: "ok" });
+      for (const e of s.edits) {
+        if (!e.pending && !e.failed) history.push(e);
+        stepLog.push({ e, state: e.pending ? "run" : e.failed ? "fail" : "ok", at: Date.now() });
+      }
       renderSteps();
     }
     settle();
@@ -837,7 +965,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 
   request("ui/initialize", {
     protocolVersion: "2026-01-26",
-    appInfo: { name: "Sheets MCP preview", version: "1.2.0" },
+    appInfo: { name: "Sheets MCP preview", version: "1.4.0" },
     appCapabilities: {},
   }).then((r) => {
     applyContext(r && r.hostContext);

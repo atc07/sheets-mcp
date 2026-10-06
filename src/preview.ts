@@ -18,6 +18,12 @@ const MAX_ROWS = 120;
 const MAX_COLS = 26;
 /** Cells per preview, so the result stays a size hosts pass through to the widget. */
 const MAX_CELLS = 1500;
+/**
+ * Characters of cell JSON per preview. Some hosts hand the structured result to the model as well as
+ * to the widget, so past this the formulas go first (the widget only shows them in its formula bar),
+ * then trailing rows.
+ */
+const MAX_CELL_CHARS = 36_000;
 /** How far above the view to look for charts that hang down into it. */
 const LEAD_ROWS = 40;
 
@@ -29,21 +35,31 @@ export interface Rect {
   c1: number;
 }
 
-/** Something Claude read or changed, as the widget animates it. `rect` is missing for whole-tab steps (freeze, new tab…). */
+/**
+ * Something Claude is reading or changing, as the widget animates it. A step is sent twice: once when
+ * the tool starts (`pending`, so the widget can show it in progress and move its cursor there) and once
+ * when it finishes, with the same `id` and a new `seq`. `rect` is missing for whole-tab steps (freeze, new tab…).
+ */
 export interface PreviewEdit {
   seq: number;
+  /** The seq of the step's start; the same on its finish. */
+  id: number;
   tool: string;
   kind: "read" | "edit";
   tab?: string;
   a1?: string;
   rect?: Rect;
+  pending?: true;
+  failed?: true;
 }
 
 /**
  * One cell as the widget draws it: v = displayed text, f = formula, n = number, b/i/s/u = bold/italic/
  * strike/underline, bg/fg = colors, al/va = alignment, fs = font size (pt), ff = font, w = wraps,
  * bd = borders [top, right, bottom, left] as "width color" (width 1-3, "d" suffix for dashed/dotted).
+ * A cell with nothing but text travels as the bare string.
  */
+export type CompactCell = PreviewCell | string;
 interface PreviewCell {
   v: string;
   f?: string;
@@ -101,11 +117,18 @@ export interface Preview {
   start_col: number;
   col_widths: number[];
   row_heights: number[];
-  rows: PreviewCell[][];
+  rows: CompactCell[][];
   /** Merged blocks inside the view, in sheet coordinates. */
   merges?: Rect[];
   charts?: PreviewChart[];
   hide_gridlines?: true;
+  /** Frozen panes on this tab (absolute counts, as in Sheets). */
+  frozen_rows?: number;
+  frozen_cols?: number;
+  /** Every tab in the spreadsheet, in order, for the tab strip. */
+  tabs?: { title: string; hidden?: true }[];
+  /** Formulas were left out to keep the result small; the formula bar shows values instead. */
+  formulas_omitted?: true;
   /** The spreadsheet's default font size (pt). */
   base_font?: number;
   /** Cells Claude changed, outlined when there are no edits to replay. */
@@ -212,6 +235,12 @@ function toCell(v?: sheets_v4.Schema$CellData): PreviewCell {
   return cell;
 }
 
+/** Shrink a cell for the wire: plain text travels as a bare string. */
+function compact(cell: PreviewCell): CompactCell {
+  for (const k in cell) if (k !== "v") return cell;
+  return cell.v;
+}
+
 /** The cells of one chart source range, in order (row- or column-shaped). */
 function flatten(vr?: sheets_v4.Schema$ValueRange) {
   const v = (vr?.values ?? []) as unknown[][];
@@ -231,16 +260,22 @@ function valueFormat(pattern?: string | null, type?: string | null) {
   return Object.keys(f).length ? f : undefined;
 }
 
+export interface PreviewTab {
+  title: string;
+  sheetId: number;
+  hidden?: boolean | null;
+}
+
 async function chartData(
   api: sheets_v4.Sheets,
   id: string,
   charts: { chart: sheets_v4.Schema$EmbeddedChart; left: number; top: number }[],
   theme: Map<string, string>,
-  themeFont?: string,
+  themeFont: string | undefined,
+  tabs: PreviewTab[] | undefined,
 ) {
-  const titles = new Map(
-    ((await api.spreadsheets.get({ spreadsheetId: id, fields: "sheets.properties(sheetId,title)" })).data.sheets ?? []).map((s) => [s.properties!.sheetId!, s.properties!.title!]),
-  );
+  const known = tabs ?? ((await api.spreadsheets.get({ spreadsheetId: id, fields: "sheets.properties(sheetId,title)" })).data.sheets ?? []).map((s) => ({ title: s.properties!.title!, sheetId: s.properties!.sheetId! }));
+  const titles = new Map(known.map((t) => [t.sheetId, t.title]));
   const a1 = (g: sheets_v4.Schema$GridRange) =>
     toA1(titles.get(g.sheetId ?? 0), g.startRowIndex ?? 0, g.startColumnIndex ?? 0, g.endRowIndex ?? (g.startRowIndex ?? 0) + MAX_POINTS, g.endColumnIndex ?? (g.startColumnIndex ?? 0) + 1);
   const sources = (cr?: sheets_v4.Schema$ChartData | null) => cr?.sourceRange?.sources ?? [];
@@ -339,7 +374,7 @@ export async function buildPreview(
   id: string,
   sheet: { title: string; sheetId: number },
   win: Rect,
-  opts: { highlight?: Rect; keep?: Rect; truncated?: boolean } = {},
+  opts: { highlight?: Rect; keep?: Rect; truncated?: boolean; tabs?: PreviewTab[] } = {},
 ): Promise<Preview> {
   const { r0, c0, r1, c1 } = win;
   // Rows just above the view, for their heights: a chart anchored up there can hang down into the view.
@@ -350,7 +385,7 @@ export async function buildPreview(
     ranges: [toA1(sheet.title, r0, c0, r1, c1), ...(lead ? [toA1(sheet.title, r0 - lead, c0, r0, c1)] : [])],
     includeGridData: true,
     fields:
-      "properties(title,defaultFormat/textFormat/fontSize,spreadsheetTheme),sheets(properties/gridProperties/hideGridlines,merges," +
+      "properties(title,defaultFormat/textFormat/fontSize,spreadsheetTheme),sheets(properties(gridProperties(hideGridlines,frozenRowCount,frozenColumnCount)),merges," +
       "charts(chartId,spec(title,fontName,titleTextFormat(fontSize,bold,foregroundColor,foregroundColorStyle),backgroundColor,backgroundColorStyle," +
       "basicChart(chartType,stackedType,headerCount,legendPosition,domains/domain/sourceRange/sources,series(series/sourceRange/sources,type,color,colorStyle))," +
       "pieChart(legendPosition,domain/sourceRange/sources,series/sourceRange/sources,pieHole)),position/overlayPosition)," +
@@ -404,21 +439,36 @@ export async function buildPreview(
   const widthOf = (rowCount: number) => Math.max(1, Math.min(c1 - c0, Math.max(...rowData.slice(0, rowCount).map(used), mustCols) + 1));
   const fullHeight = Math.max(1, Math.min(r1 - r0, Math.max(lastRow, mustRows) + 1));
   // Keep the result a size the host will pass to the widget; then only as wide as the rows that are kept.
-  const height = Math.min(fullHeight, Math.max(mustRows + 1, 20, Math.floor(MAX_CELLS / widthOf(fullHeight))));
+  let height = Math.min(fullHeight, Math.max(mustRows + 1, 20, Math.floor(MAX_CELLS / widthOf(fullHeight))));
   const width = widthOf(height);
 
-  const rows: PreviewCell[][] = [];
-  for (let r = 0; r < height; r++) rows.push(Array.from({ length: width }, (_, c) => toCell(rowData[r]?.values?.[c])));
+  let rows: CompactCell[][] = [];
+  for (let r = 0; r < height; r++) rows.push(Array.from({ length: width }, (_, c) => compact(toCell(rowData[r]?.values?.[c]))));
+  // Keep the cell JSON under budget: drop formulas first, then rows from the bottom (never the ones that must show).
+  const sizes = rows.map((row) => JSON.stringify(row).length);
+  let total = sizes.reduce((a, b) => a + b, 0);
+  let formulasOmitted = false;
+  if (total > MAX_CELL_CHARS && rows.some((row) => row.some((c) => typeof c !== "string" && c.f))) {
+    formulasOmitted = true;
+    rows = rows.map((row) => row.map((c) => (typeof c === "string" || !c.f ? c : compact((({ f, ...rest }) => rest)(c)))));
+    rows.forEach((row, r) => (sizes[r] = JSON.stringify(row).length));
+    total = sizes.reduce((a, b) => a + b, 0);
+  }
+  const minHeight = Math.max(mustRows + 1, 8);
+  while (total > MAX_CELL_CHARS && height > minHeight) total -= sizes[--height];
+  rows.length = height;
 
   const merges = (s?.merges ?? [])
     .map((m) => ({ r0: m.startRowIndex ?? 0, c0: m.startColumnIndex ?? 0, r1: m.endRowIndex ?? 0, c1: m.endColumnIndex ?? 0 }))
     .filter((m) => m.r0 >= r0 && m.c0 >= c0 && m.r0 < r0 + height && m.c0 < c0 + width)
     .map((m) => ({ ...m, r1: Math.min(m.r1, r0 + height), c1: Math.min(m.c1, c0 + width) }));
-  const charts = placed.length ? await chartData(api, id, placed, theme, res.data.properties?.spreadsheetTheme?.primaryFontFamily ?? undefined) : [];
+  const shown = placed.filter((p) => p.rect.r0 < r0 + height);
+  const charts = shown.length ? await chartData(api, id, shown, theme, res.data.properties?.spreadsheetTheme?.primaryFontFamily ?? undefined, opts.tabs) : [];
 
   const h = opts.highlight;
   const highlight = h && { ...h, a1: toA1(undefined, h.r0, h.c0, h.r1, h.c1) };
   const focus = highlight?.a1 ?? toA1(undefined, r0, c0, r0 + height, c0 + width);
+  const grid = s?.properties?.gridProperties;
   return {
     spreadsheet_id: id,
     title: res.data.properties?.title ?? "",
@@ -432,7 +482,11 @@ export async function buildPreview(
     rows,
     ...(merges.length && { merges }),
     ...(charts.length && { charts }),
-    ...(s?.properties?.gridProperties?.hideGridlines && { hide_gridlines: true as const }),
+    ...(grid?.hideGridlines && { hide_gridlines: true as const }),
+    ...(grid?.frozenRowCount && { frozen_rows: grid.frozenRowCount }),
+    ...(grid?.frozenColumnCount && { frozen_cols: grid.frozenColumnCount }),
+    ...(opts.tabs && { tabs: opts.tabs.map((t) => ({ title: t.title, ...(t.hidden && { hidden: true as const }) })) }),
+    ...(formulasOmitted && { formulas_omitted: true as const }),
     ...(res.data.properties?.defaultFormat?.textFormat?.fontSize && { base_font: res.data.properties.defaultFormat.textFormat.fontSize }),
     ...(highlight && { highlight }),
     ...((opts.truncated || height < fullHeight) && { truncated: true as const }),

@@ -16,6 +16,7 @@ import {
   toRect,
   union,
   type PreviewEdit,
+  type PreviewTab,
   type Rect,
 } from "./preview.js";
 import { getAuthClient, getDefaultAccount, listAccounts, removeAccount, resolveAccount, setDefaultAccount, startSignIn, type SignIn } from "./auth.js";
@@ -93,12 +94,25 @@ function errorMessage(e: any): string {
 
 // ---------- shared helpers ----------
 
+/** Tab properties, kept a few seconds: the preview asks several times per poll. Any batchUpdate drops the entry. */
+const propsCache = new Map<string, { at: number; props: sheets_v4.Schema$SheetProperties[] }>();
+const PROPS_TTL_MS = 5_000;
+
 async function getSheetProps(id: string) {
+  const cached = propsCache.get(id);
+  if (cached && Date.now() - cached.at < PROPS_TTL_MS) return cached.props;
   const res = await api().sheets.spreadsheets.get({
     spreadsheetId: id,
     fields: "sheets.properties",
   });
-  return (res.data.sheets ?? []).map((s) => s.properties!);
+  const props = (res.data.sheets ?? []).map((s) => s.properties!);
+  propsCache.set(id, { at: Date.now(), props });
+  return props;
+}
+
+/** The tabs as the preview lists them (and uses to name chart sources). */
+async function previewTabs(id: string): Promise<PreviewTab[]> {
+  return (await getSheetProps(id)).map((p) => ({ title: p.title!, sheetId: p.sheetId!, hidden: p.hidden }));
 }
 
 /** Resolve an A1 range to a GridRange (sheet name -> sheetId). Omitted sheet means the first tab. */
@@ -133,8 +147,17 @@ async function resolveSheet(id: string, name?: string) {
 }
 
 async function batch(id: string, requests: Request[]) {
+  propsCache.delete(id);
   const res = await api().sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests } });
   return res.data;
+}
+
+/** A bounded A1 range covering all of `ranges`, when they're on one tab and bounded; otherwise undefined. */
+function unionA1(ranges: string[]) {
+  const parsed = ranges.map((r) => parseA1(r));
+  const sheet = parsed[0]?.sheet;
+  if (!parsed.length || parsed.some((p) => p.sheet !== sheet || p.startRow === undefined || p.endRow === undefined || p.startCol === undefined || p.endCol === undefined)) return undefined;
+  return toA1(sheet, Math.min(...parsed.map((p) => p.startRow!)), Math.min(...parsed.map((p) => p.startCol!)), Math.max(...parsed.map((p) => p.endRow!)), Math.max(...parsed.map((p) => p.endCol!)));
 }
 
 function cellCount(values: unknown[][]) {
@@ -343,13 +366,17 @@ async function verify(id: string, range: string) {
 
 // ---------- activity log (feeds the live sheet preview) ----------
 
+/** One step, logged when its tool starts (`pending`) and updated with a new seq when it finishes. */
 interface Activity {
   seq: number;
+  id: number;
   tool: string;
   kind: "read" | "edit";
   range?: string;
   tab?: string;
   at: number;
+  pending?: true;
+  failed?: true;
 }
 const activityLog = new Map<string, Activity[]>();
 let activitySeq = 0;
@@ -360,29 +387,71 @@ const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "create_spreads
 const READS = new Set(["get_spreadsheet_info", "read_range", "read_ranges"]);
 /** Tools that only look (hosts can run these without asking), and tools that can overwrite or remove what's in a sheet. */
 const READ_ONLY = new Set([...READS, "find_spreadsheet", "show_range", "preview_updates"]);
-const DESTRUCTIVE = new Set(["write_range", "clear_range", "find_replace", "delete_rows_or_columns", "manage_tab", "merge_cells", "delete_chart", "batch_update"]);
+const DESTRUCTIVE = new Set(["write_range", "fill_range", "clear_range", "find_replace", "delete_rows_or_columns", "manage_tab", "merge_cells", "delete_chart", "batch_update"]);
 
-function logActivity(id: string, tool: string, args: any, result: any) {
-  if (UNLOGGED.has(tool) || args?.dry_run || result?.would_write || result?.would_clear) return;
-  const kind = READS.has(tool) ? "read" : "edit";
-  const range =
-    kind === "read"
-      ? (result?.range ?? args?.range)
-      : (result?.updated_range ?? result?.appended_range ?? result?.cleared_range ?? result?.restored_range ?? args?.range ?? args?.data_range);
+function pushActivity(id: string, e: Activity) {
   const list = activityLog.get(id) ?? [];
-  const ranges: (string | undefined)[] = Array.isArray(result?.ranges) ? result.ranges.map((r: any) => r?.range) : [range ?? result?.pivot_range];
-  for (const r of ranges) list.push({ seq: ++activitySeq, tool, kind, range: r, tab: args?.tab ?? args?.sheet ?? result?.tab, at: Date.now() });
+  list.push(e);
   while (list.length > 300) list.shift();
   activityLog.set(id, list);
 }
 
+/** Where a step is about to work, from its arguments alone (so the preview can point there before it finishes). */
+function startRange(tool: string, args: any): string | undefined {
+  try {
+    if (tool === "write_range" && Array.isArray(args.values) && typeof args.range === "string") {
+      const p = parseA1(args.range);
+      const rows = args.values.length, cols = Math.max(1, ...args.values.map((r: unknown[]) => r.length));
+      return toA1(p.sheet, p.startRow ?? 0, p.startCol ?? 0, (p.startRow ?? 0) + rows, (p.startCol ?? 0) + cols);
+    }
+    if (tool === "fill_range") return args.destination;
+    if (tool === "format_ranges") return unionA1((args.items ?? []).map((i: any) => i.range));
+    if (tool === "read_ranges") return args.ranges?.[0];
+    return args.range ?? args.data_range ?? args.source_range;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Log that a tool has started, so the preview can show it in progress. Returns the entry to finish later. */
+function startActivity(id: string, tool: string, args: any): Activity | undefined {
+  if (UNLOGGED.has(tool) || args?.dry_run) return;
+  const seq = ++activitySeq;
+  const e: Activity = { seq, id: seq, tool, kind: READS.has(tool) ? "read" : "edit", range: startRange(tool, args), tab: args?.tab ?? args?.sheet, at: Date.now(), pending: true };
+  pushActivity(id, e);
+  return e;
+}
+
+/** Finish a started step: where it actually read or wrote (extra ranges become steps of their own), or that it failed. */
+function endActivity(id: string, e: Activity | undefined, args: any, result: any, failed = false) {
+  if (!e) return;
+  delete e.pending;
+  e.seq = ++activitySeq;
+  e.at = Date.now();
+  if (failed) {
+    e.failed = true;
+    return;
+  }
+  const range =
+    e.kind === "read"
+      ? (result?.range ?? args?.range)
+      : (result?.updated_range ?? result?.appended_range ?? result?.cleared_range ?? result?.restored_range ?? result?.filled_range ?? result?.formatted_range ?? args?.range ?? args?.data_range);
+  const ranges: (string | undefined)[] = Array.isArray(result?.ranges) ? result.ranges.map((r: any) => r?.range) : [range ?? result?.pivot_range];
+  e.range = ranges[0] ?? e.range;
+  e.tab = args?.tab ?? args?.sheet ?? result?.tab;
+  for (const r of ranges.slice(1)) {
+    const seq = ++activitySeq;
+    pushActivity(id, { seq, id: seq, tool: e.tool, kind: e.kind, range: r, tab: e.tab, at: e.at });
+  }
+}
+
 /** Activity after `since` (and newer than `after`, a timestamp), with sheet-less ranges placed on the first tab. */
 async function activitySince(id: string, since: number, after = 0): Promise<PreviewEdit[]> {
-  const list = (activityLog.get(id) ?? []).filter((e) => e.seq > since && e.at > after);
+  const list = (activityLog.get(id) ?? []).filter((e) => e.seq > since && e.at > after).sort((a, b) => a.seq - b.seq);
   if (!list.length) return [];
   const first = (await getSheetProps(id))[0]?.title ?? undefined;
   return list.map((e) => {
-    const base = { seq: e.seq, tool: e.tool, kind: e.kind };
+    const base: PreviewEdit = { seq: e.seq, id: e.id, tool: e.tool, kind: e.kind, ...(e.pending && { pending: true as const }), ...(e.failed && { failed: true as const }) };
     if (!e.range) return { ...base, tab: e.tab ?? first };
     const p = parseA1(e.range);
     const tab = p.sheet ?? first;
@@ -499,6 +568,7 @@ export function createServer() {
       ...(opts.preview === "app" && { _meta: { ui: { resourceUri: PREVIEW_URI, visibility: ["app"] } } }),
     };
     return server.registerTool(name, config, (async (args: z.infer<z.ZodObject<S>> & { account?: string }) => {
+      let started: { id: string; activity: Activity | undefined } | undefined;
       try {
         if (opts.manageAccounts) {
           const result = await handler(args);
@@ -531,6 +601,8 @@ export function createServer() {
           ? [resolveAccount(args.account)]
           : [...new Set([known, fallback, ...(sheetId ? all : [])].filter((a): a is string => !!a && all.includes(a)))];
         const failures: string[] = [];
+        // The preview shows the step as soon as it starts; it's finished (or marked failed) below.
+        if (sheetId) started = { id: sheetId, activity: startActivity(sheetId, name, args) };
         for (const email of candidates) {
           try {
             result = await currentAccount.run(email, () => handler(args));
@@ -544,15 +616,14 @@ export function createServer() {
           }
         }
         if (!usedAccount) throw new Error(`No signed-in account could do this.\n${failures.join("\n")}`);
+        if (started) endActivity(started.id, started.activity, args, result);
+        started = undefined;
         remember(name, args, result, sheetId, usedAccount);
         if (opts.preview && (opts.preview === "show" || (args as any).initial)) {
           console.error(`Sheet preview: ${name}${(args as any).initial ? " (widget's own fetch)" : ""} from ${server.server.getClientVersion()?.name}`);
         }
         if (opts.preview) {
           const out: Record<string, any> = { ...(result as Record<string, unknown>), account: usedAccount };
-          // Hosts can keep serving a cached copy of the first widget, which read the preview from the top
-          // level; repeat it there so that copy still draws the sheet.
-          if (out.preview) Object.assign(out, { ...out.preview, ...out });
           const text = opts.preview === "show" ? previewSummary(out.preview, out.edits.length) : "ok";
           return { content: [{ type: "text" as const, text }], structuredContent: out };
         }
@@ -560,7 +631,6 @@ export function createServer() {
         if (usedAccount && all.length > 1) text = `[account: ${usedAccount}]\n${text}`;
         const content = [{ type: "text" as const, text }];
         if (sheetId && !UNLOGGED.has(name)) {
-          logActivity(sheetId, name, args, result);
           // Nudge Claude to open the live preview, so the user can watch the rest of the work.
           const shown = previewShownAt.get(sheetId);
           if (previewsOn && (!shown || Date.now() - shown > PREVIEW_FRESH_MS)) {
@@ -572,6 +642,7 @@ export function createServer() {
         }
         return { content };
       } catch (e: any) {
+        if (started) endActivity(started.id, started.activity, args, undefined, true);
         const msg = errorMessage(e);
         return { isError: true, content: [{ type: "text" as const, text: `Error: ${msg}` }] };
       }
@@ -817,7 +888,9 @@ export function createServer() {
    */
   const lastReplay = new Map<string, { at: number; edits: PreviewEdit[] }>();
   async function openPreview(id: string, range?: string, highlight?: string) {
-    let recent = await activitySince(id, 0, Math.max(previewShownAt.get(id) ?? 0, Date.now() - 15 * 60_000));
+    // Steps logged while this builds are left for the widget's first poll, so none is skipped or sent twice.
+    const upTo = activitySeq;
+    let recent = (await activitySince(id, 0, Math.max(previewShownAt.get(id) ?? 0, Date.now() - 15 * 60_000))).filter((e) => e.seq <= upTo);
     // The widget's own first fetch comes right after show_range; give it the same steps to replay.
     const prior = lastReplay.get(id);
     if (!recent.length && prior && Date.now() - prior.at < 60_000) recent = prior.edits;
@@ -836,14 +909,15 @@ export function createServer() {
     const sheet = await resolveSheet(id, sheetName);
     const onTab = recent.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
     if (!range) rect = fitWindow(rect, onTab);
-    const edited = recent.filter((e) => e.kind === "edit" && e.tab === sheet.title && e.rect).map((e) => e.rect!);
+    const edited = recent.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
     const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, {
       highlight: outline,
       keep: union(edited),
       truncated,
+      tabs: await previewTabs(id),
     });
     previewShownAt.set(id, Date.now());
-    return { preview, edits: recent, seq: activitySeq };
+    return { preview, edits: recent, seq: upTo };
   }
 
   const showRange = tool(
@@ -867,13 +941,24 @@ export function createServer() {
       highlight: z.string().optional(),
       since: z.number().int().min(0).default(0).describe("Last activity sequence number the preview has seen"),
       initial: z.boolean().default(false).describe("Build the whole preview, as show_range does (when the host didn't pass its result through)"),
+      peek: z.boolean().default(false).describe("Only build a preview of `range` (the user picked a tab in the preview); no activity is replayed"),
     },
-    async ({ spreadsheet, range, highlight, since, initial }) => {
+    async ({ spreadsheet, range, highlight, since, initial, peek }) => {
       const id = spreadsheetIdFrom(spreadsheet);
+      if (peek && range) {
+        const win = previewWindow(range, undefined);
+        const sheet = await resolveSheet(id, win.sheet);
+        const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, win.rect, { truncated: win.truncated, tabs: await previewTabs(id) });
+        previewShownAt.set(id, Date.now());
+        return { preview, seq: Math.max(since, activitySeq) };
+      }
       if (initial || !range) return openPreview(id, range, highlight);
       previewShownAt.set(id, Date.now());
-      const edits = await activitySince(id, since);
-      if (!edits.length) return { edits, seq: Math.max(since, activitySeq) };
+      const upTo = activitySeq;
+      const edits = (await activitySince(id, since)).filter((e) => e.seq <= upTo);
+      const seq = Math.max(since, upTo);
+      // Steps that only just started haven't changed the sheet yet: send them without a rebuild.
+      if (!edits.some((e) => !e.pending)) return { edits, seq };
       const { sheet: winTab, rect: win } = toRect(range);
       // Follow Claude to whichever tab it touched last.
       const lastTab = [...edits].reverse().find((e) => e.tab)?.tab ?? winTab;
@@ -881,9 +966,9 @@ export function createServer() {
       const onTab = edits.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
       const base = sheet.title === winTab ? win : { r0: 0, c0: 0, r1: 100, c1: 26 };
       const rect = fitWindow(base, onTab);
-      const edited = edits.filter((e) => e.kind === "edit" && e.tab === sheet.title && e.rect).map((e) => e.rect!);
-      const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, { keep: union(edited) });
-      return { edits, seq: activitySeq, preview };
+      const edited = edits.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
+      const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, { keep: union(edited), tabs: await previewTabs(id) });
+      return { edits, seq, preview };
     },
     { preview: "app" },
   );
@@ -922,6 +1007,62 @@ export function createServer() {
         requestBody: { values: values.map((r) => r.map((v) => v ?? "")) },
       });
       return { updated_range: res.data.updatedRange, updated_cells: res.data.updatedCells, ...(await verify(id, target)) };
+    },
+  );
+
+  tool(
+    "fill_range",
+    "Fill cells from a source block, like dragging the fill handle or pasting onto a bigger selection: the source's formulas (relative references shift), values and formatting repeat across the destination. Use it after writing one row or column of formulas to extend them across a table, instead of sending every column. With continue_series, patterns continue instead (1, 2, 3 → 4, 5, 6; Jan → Feb; dates). The destination's previous contents are saved for undo_last. Returns any formula errors found after filling.",
+    {
+      spreadsheet,
+      source: z.string().describe("The cells to fill from, e.g. \"Model!O25:O97\""),
+      destination: z.string().describe("The cells to fill, e.g. \"Model!P25:AE97\" (it may include the source). For continue_series it must sit right after, or right before, the source in the same rows or columns"),
+      paste: z.enum(["all", "formulas", "values", "formats"]).default("all").describe("all = formulas, values and formatting; formulas = formulas and values without formatting; values = results as plain values; formats = formatting only"),
+      continue_series: z.boolean().default(false).describe("Extend the pattern in the source (like the fill handle) instead of repeating it"),
+      allow_large: z.boolean().default(false).describe(`Required for fills over ${MAX_WRITE_CELLS} cells`),
+    },
+    async ({ spreadsheet, source, destination, paste, continue_series, allow_large }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const src = await resolveRange(id, source);
+      const dst = await resolveRange(id, destination);
+      const sp = src.parsed;
+      if (sp.startRow === undefined || sp.endRow === undefined || sp.startCol === undefined || sp.endCol === undefined) throw new Error(`source must be a bounded range like "A2:D2", not ${source}.`);
+      const S = src.bounded;
+      const d = { ...dst.bounded };
+      const sameTab = src.sheet.sheetId === dst.sheet.sheetId;
+      // A destination that starts with the source ("O25:AE97" for source O25:O97) means the part after it.
+      if (sameTab && d.startRow === S.startRow && d.endRow === S.endRow && d.startCol === S.startCol && d.endCol > S.endCol) d.startCol = S.endCol;
+      else if (sameTab && d.startCol === S.startCol && d.endCol === S.endCol && d.startRow === S.startRow && d.endRow > S.endRow) d.startRow = S.endRow;
+      const sh = S.endRow - S.startRow, sw = S.endCol - S.startCol, dh = d.endRow - d.startRow, dw = d.endCol - d.startCol;
+      if (dh <= 0 || dw <= 0) throw new Error("destination has no cells outside the source.");
+      const gridOf = (sheetId: number | null | undefined, b: typeof d): sheets_v4.Schema$GridRange => ({ sheetId, startRowIndex: b.startRow, endRowIndex: b.endRow, startColumnIndex: b.startCol, endColumnIndex: b.endCol });
+      let request: Request;
+      let filled: typeof d;
+      if (continue_series) {
+        if (!sameTab) throw new Error("continue_series needs source and destination on the same tab.");
+        const sameRows = d.startRow === S.startRow && d.endRow === S.endRow, sameCols = d.startCol === S.startCol && d.endCol === S.endCol;
+        const fill =
+          sameRows && d.startCol === S.endCol ? { dimension: "COLUMNS", fillLength: dw }
+          : sameRows && d.endCol === S.startCol ? { dimension: "COLUMNS", fillLength: -dw }
+          : sameCols && d.startRow === S.endRow ? { dimension: "ROWS", fillLength: dh }
+          : sameCols && d.endRow === S.startRow ? { dimension: "ROWS", fillLength: -dh }
+          : undefined;
+        if (!fill) throw new Error("For continue_series, destination must be right after (or before) the source in the same rows or columns, e.g. source A2:A4 and destination A5:A20.");
+        request = { autoFill: { useAlternateSeries: false, sourceAndDestination: { source: gridOf(src.sheet.sheetId, S), ...fill } } };
+        filled = d;
+      } else {
+        // Sheets repeats the source when the destination is a multiple of it; otherwise it pastes once.
+        filled = { startRow: d.startRow, startCol: d.startCol, endRow: d.startRow + (dh % sh === 0 ? dh : sh), endCol: d.startCol + (dw % sw === 0 ? dw : sw) };
+        const pasteType = { all: "PASTE_NORMAL", formulas: "PASTE_FORMULA", values: "PASTE_VALUES", formats: "PASTE_FORMAT" }[paste];
+        request = { copyPaste: { source: gridOf(src.sheet.sheetId, S), destination: gridOf(dst.sheet.sheetId, filled), pasteType, pasteOrientation: "NORMAL" } };
+      }
+      const target = toA1(dst.sheet.title!, filled.startRow, filled.startCol, filled.endRow, filled.endCol);
+      const cells = (filled.endRow - filled.startRow) * (filled.endCol - filled.startCol);
+      if (cells > MAX_WRITE_CELLS && !allow_large) throw new Error(`Fill of ${cells} cells exceeds ${MAX_WRITE_CELLS}. Confirm with the user, then pass allow_large: true.`);
+      const writes = paste !== "formats";
+      if (writes) await snapshot(id, target, `fill ${target}`, filled.endRow - filled.startRow, filled.endCol - filled.startCol);
+      await batch(id, [request]);
+      return { filled_range: target, from: toA1(src.sheet.title!, S.startRow, S.startCol, S.endRow, S.endCol), ...(writes ? await verify(id, target) : {}) };
     },
   );
 
@@ -1158,91 +1299,121 @@ export function createServer() {
 
   // ----- formatting -----
 
+  const formatOptions = {
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
+    strikethrough: z.boolean().optional(),
+    font_size: z.number().optional(),
+    font_family: z.string().optional(),
+    text_color: z.string().optional().describe("Hex, e.g. #1a73e8"),
+    background_color: z.string().optional().describe("Hex, e.g. #f1f3f4"),
+    number_format: z
+      .object({
+        type: z.enum(["TEXT", "NUMBER", "PERCENT", "CURRENCY", "DATE", "TIME", "DATE_TIME", "SCIENTIFIC"]),
+        pattern: z.string().optional().describe("e.g. \"#,##0.00\", \"$#,##0\", \"0.0%\", \"yyyy-mm-dd\""),
+      })
+      .optional(),
+    horizontal_alignment: z.enum(["LEFT", "CENTER", "RIGHT"]).optional(),
+    vertical_alignment: z.enum(["TOP", "MIDDLE", "BOTTOM"]).optional(),
+    wrap: z.enum(["OVERFLOW_CELL", "CLIP", "WRAP"]).optional(),
+    borders: z
+      .object({
+        sides: z.enum(["all", "outer", "inner", "top", "bottom", "left", "right", "none"]),
+        style: z.enum(["SOLID", "SOLID_MEDIUM", "SOLID_THICK", "DASHED", "DOTTED", "DOUBLE"]).default("SOLID"),
+        color: z.string().default("#000000"),
+      })
+      .optional(),
+    clear_formatting: z.boolean().default(false).describe("Reset all formatting first"),
+  };
+  type FormatOptions = z.infer<z.ZodObject<typeof formatOptions>>;
+
+  /** The batchUpdate requests that apply one set of formatting options to a grid range. */
+  function formatRequests(g: sheets_v4.Schema$GridRange, a: FormatOptions): Request[] {
+    const requests: Request[] = [];
+    if (a.clear_formatting) requests.push({ repeatCell: { range: g, cell: { userEnteredFormat: {} }, fields: "userEnteredFormat" } });
+
+    const fmt: sheets_v4.Schema$CellFormat = {};
+    const fields: string[] = [];
+    const text: sheets_v4.Schema$TextFormat = {};
+    const textKeys: [keyof FormatOptions, keyof sheets_v4.Schema$TextFormat][] = [
+      ["bold", "bold"],
+      ["italic", "italic"],
+      ["underline", "underline"],
+      ["strikethrough", "strikethrough"],
+      ["font_size", "fontSize"],
+      ["font_family", "fontFamily"],
+    ];
+    for (const [k, tk] of textKeys) {
+      if (a[k] !== undefined) {
+        (text as any)[tk] = a[k];
+        fields.push(`userEnteredFormat.textFormat.${tk}`);
+      }
+    }
+    if (a.text_color) {
+      text.foregroundColorStyle = { rgbColor: hexToColor(a.text_color) };
+      fields.push("userEnteredFormat.textFormat.foregroundColorStyle");
+    }
+    if (Object.keys(text).length) fmt.textFormat = text;
+    if (a.background_color) {
+      fmt.backgroundColorStyle = { rgbColor: hexToColor(a.background_color) };
+      fields.push("userEnteredFormat.backgroundColorStyle");
+    }
+    if (a.number_format) {
+      fmt.numberFormat = a.number_format;
+      fields.push("userEnteredFormat.numberFormat");
+    }
+    if (a.horizontal_alignment) (fmt.horizontalAlignment = a.horizontal_alignment), fields.push("userEnteredFormat.horizontalAlignment");
+    if (a.vertical_alignment) (fmt.verticalAlignment = a.vertical_alignment), fields.push("userEnteredFormat.verticalAlignment");
+    if (a.wrap) (fmt.wrapStrategy = a.wrap), fields.push("userEnteredFormat.wrapStrategy");
+    if (fields.length) requests.push({ repeatCell: { range: g, cell: { userEnteredFormat: fmt }, fields: fields.join(",") } });
+
+    if (a.borders) {
+      const b = a.borders.sides === "none" ? { style: "NONE" } : { style: a.borders.style, colorStyle: { rgbColor: hexToColor(a.borders.color) } };
+      const s = a.borders.sides;
+      const on = (side: string) =>
+        s === "all" || s === "none" || s === side || (s === "outer" && ["top", "bottom", "left", "right"].includes(side)) || (s === "inner" && side.startsWith("inner"));
+      const upd: sheets_v4.Schema$UpdateBordersRequest = { range: g };
+      for (const side of ["top", "bottom", "left", "right", "innerHorizontal", "innerVertical"] as const) if (on(side)) upd[side] = b;
+      requests.push({ updateBorders: upd });
+    }
+    return requests;
+  }
+
   tool(
     "format_range",
-    "Apply formatting to a range: font styles, colors, number formats, alignment, wrapping, borders. Only provided options are changed.",
-    {
-      spreadsheet,
-      range,
-      bold: z.boolean().optional(),
-      italic: z.boolean().optional(),
-      underline: z.boolean().optional(),
-      strikethrough: z.boolean().optional(),
-      font_size: z.number().optional(),
-      font_family: z.string().optional(),
-      text_color: z.string().optional().describe("Hex, e.g. #1a73e8"),
-      background_color: z.string().optional().describe("Hex, e.g. #f1f3f4"),
-      number_format: z
-        .object({
-          type: z.enum(["TEXT", "NUMBER", "PERCENT", "CURRENCY", "DATE", "TIME", "DATE_TIME", "SCIENTIFIC"]),
-          pattern: z.string().optional().describe("e.g. \"#,##0.00\", \"$#,##0\", \"0.0%\", \"yyyy-mm-dd\""),
-        })
-        .optional(),
-      horizontal_alignment: z.enum(["LEFT", "CENTER", "RIGHT"]).optional(),
-      vertical_alignment: z.enum(["TOP", "MIDDLE", "BOTTOM"]).optional(),
-      wrap: z.enum(["OVERFLOW_CELL", "CLIP", "WRAP"]).optional(),
-      borders: z
-        .object({
-          sides: z.enum(["all", "outer", "inner", "top", "bottom", "left", "right", "none"]),
-          style: z.enum(["SOLID", "SOLID_MEDIUM", "SOLID_THICK", "DASHED", "DOTTED", "DOUBLE"]).default("SOLID"),
-          color: z.string().default("#000000"),
-        })
-        .optional(),
-      clear_formatting: z.boolean().default(false).describe("Reset all formatting first"),
-    },
+    "Apply formatting to a range: font styles, colors, number formats, alignment, wrapping, borders. Only provided options are changed. To style several ranges differently in one go, use format_ranges.",
+    { spreadsheet, range, ...formatOptions },
     async (a) => {
       const id = spreadsheetIdFrom(a.spreadsheet);
       const { grid: g } = await resolveRange(id, a.range);
-      const requests: Request[] = [];
-      if (a.clear_formatting) requests.push({ repeatCell: { range: g, cell: { userEnteredFormat: {} }, fields: "userEnteredFormat" } });
-
-      const fmt: sheets_v4.Schema$CellFormat = {};
-      const fields: string[] = [];
-      const text: sheets_v4.Schema$TextFormat = {};
-      const textKeys: [keyof typeof a, keyof sheets_v4.Schema$TextFormat][] = [
-        ["bold", "bold"],
-        ["italic", "italic"],
-        ["underline", "underline"],
-        ["strikethrough", "strikethrough"],
-        ["font_size", "fontSize"],
-        ["font_family", "fontFamily"],
-      ];
-      for (const [k, tk] of textKeys) {
-        if (a[k] !== undefined) {
-          (text as any)[tk] = a[k];
-          fields.push(`userEnteredFormat.textFormat.${tk}`);
-        }
-      }
-      if (a.text_color) {
-        text.foregroundColorStyle = { rgbColor: hexToColor(a.text_color) };
-        fields.push("userEnteredFormat.textFormat.foregroundColorStyle");
-      }
-      if (Object.keys(text).length) fmt.textFormat = text;
-      if (a.background_color) {
-        fmt.backgroundColorStyle = { rgbColor: hexToColor(a.background_color) };
-        fields.push("userEnteredFormat.backgroundColorStyle");
-      }
-      if (a.number_format) {
-        fmt.numberFormat = a.number_format;
-        fields.push("userEnteredFormat.numberFormat");
-      }
-      if (a.horizontal_alignment) (fmt.horizontalAlignment = a.horizontal_alignment), fields.push("userEnteredFormat.horizontalAlignment");
-      if (a.vertical_alignment) (fmt.verticalAlignment = a.vertical_alignment), fields.push("userEnteredFormat.verticalAlignment");
-      if (a.wrap) (fmt.wrapStrategy = a.wrap), fields.push("userEnteredFormat.wrapStrategy");
-      if (fields.length) requests.push({ repeatCell: { range: g, cell: { userEnteredFormat: fmt }, fields: fields.join(",") } });
-
-      if (a.borders) {
-        const b = a.borders.sides === "none" ? { style: "NONE" } : { style: a.borders.style, colorStyle: { rgbColor: hexToColor(a.borders.color) } };
-        const s = a.borders.sides;
-        const on = (side: string) =>
-          s === "all" || s === "none" || s === side || (s === "outer" && ["top", "bottom", "left", "right"].includes(side)) || (s === "inner" && side.startsWith("inner"));
-        const upd: sheets_v4.Schema$UpdateBordersRequest = { range: g };
-        for (const side of ["top", "bottom", "left", "right", "innerHorizontal", "innerVertical"] as const) if (on(side)) upd[side] = b;
-        requests.push({ updateBorders: upd });
-      }
+      const requests = formatRequests(g, a);
       if (!requests.length) throw new Error("No formatting options provided.");
       await batch(id, requests);
       return `Formatted ${a.range}.`;
+    },
+  );
+
+  tool(
+    "format_ranges",
+    "Apply different formatting to several ranges in one call (same options as format_range, one entry per range): headers, input cells, number formats, borders and so on for a whole tab at once. Ranges may repeat; later entries win where they overlap.",
+    {
+      spreadsheet,
+      items: z.array(z.object({ range, ...formatOptions })).min(1).max(200).describe("One entry per range, each with the formatting to apply there"),
+    },
+    async ({ spreadsheet, items }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const requests: Request[] = [];
+      const tabs = new Set<string>();
+      for (const item of items) {
+        const { grid: g, sheet } = await resolveRange(id, item.range);
+        tabs.add(sheet.title!);
+        const reqs = formatRequests(g, item);
+        if (!reqs.length) throw new Error(`No formatting options provided for ${item.range}.`);
+        requests.push(...reqs);
+      }
+      await batch(id, requests);
+      return { formatted: items.length, tabs: [...tabs], ...(tabs.size === 1 && { formatted_range: unionA1(items.map((i) => i.range)) }) };
     },
   );
 

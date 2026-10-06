@@ -67,18 +67,31 @@ claude mcp add --scope user google-sheets -- node /Users/bluesteel/Desktop/Proje
 
 | Area | Tools |
 |---|---|
-| Accounts & discovery | `google_accounts`, `get_spreadsheet_info`, `create_spreadsheet` |
-| Read/write | `read_range`, `write_range`, `append_rows`, `clear_range`, `find_replace`, `undo_last` |
+| Accounts & discovery | `google_accounts`, `find_spreadsheet`, `get_spreadsheet_info`, `create_spreadsheet` |
+| Read/write | `read_range`, `read_ranges`, `write_range`, `fill_range`, `append_rows`, `clear_range`, `find_replace`, `undo_last` |
 | Structure | `manage_tab`, `insert_rows_or_columns`, `delete_rows_or_columns`, `freeze`, `resize_columns`, `merge_cells` |
-| Formatting | `format_range`, `add_conditional_format`; read formatting with `read_range` mode `formats` |
-| Data | `sort_range`, `set_filter`, `set_data_validation`, `add_chart` |
+| Formatting | `format_range`, `format_ranges`, `add_conditional_format`; read formatting with `read_range` mode `formats` |
+| Data | `sort_range`, `set_filter`, `set_data_validation`, `add_chart`, `update_chart`, `delete_chart`, `add_pivot_table` |
+| Live preview | `show_range` (MCP Apps hosts only), `preview_updates` (called by the widget, not the model) |
 | Escape hatch | `batch_update` (raw Sheets API requests) |
 
 Safety features:
 - `write_range` and `clear_range` support `dry_run`.
-- Writes over 10,000 cells need `allow_large`.
-- Writes are read back so formula errors (`#REF!`, `#N/A`, and so on) are reported immediately.
-- `undo_last` restores values and formulas from `write_range`, `append_rows` and `clear_range`. The history is kept in memory for the session.
+- Writes and fills over 10,000 cells need `allow_large`.
+- Writes and fills are read back so formula errors (`#REF!`, `#N/A`, and so on) are reported immediately.
+- `undo_last` restores values and formulas from `write_range`, `fill_range`, `append_rows` and `clear_range`. The history is kept in memory for the session.
+
+## Live preview
+
+`show_range` returns the sheet as structured content for the widget (`src/preview-html.ts`), plus a one-line summary for the model. Some hosts (Claude Code) hand the structured content to the model too, so the preview is kept small: plain cells travel as bare strings and `buildPreview` drops formulas, then trailing rows, past `MAX_CELL_CHARS`.
+
+Every tool call is logged twice for the widget: when it starts (`pending`, so the step row and cursor appear right away) and when it finishes, under the same `id`. The widget polls `preview_updates`; a poll that finds only started steps costs no Sheets API call.
+
+To work on the widget without Claude, run the harness, which plays a scripted session through the real widget page:
+
+```bash
+npm run build && node scripts/preview-harness.mjs   # http://localhost:4177
+```
 
 ## Files
 

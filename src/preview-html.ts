@@ -101,6 +101,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .cur { position: absolute; z-index: 6; left: 0; top: 0; width: 0; height: 0; border: 2px solid var(--claude); border-radius: 2px; background: var(--claude-soft); pointer-events: none; opacity: 0;
   transition: transform 450ms var(--ease), width 450ms var(--ease), height 450ms var(--ease), opacity 200ms ease; }
 .cur.on { opacity: 1; }
+/* At rest the outline barely tints, so the sheet's own colors read through. */
+.cur.settled { background: rgba(217,119,87,.04); }
 .cur span { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; background: var(--claude); color: #fff; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
 .cur.top span { bottom: auto; top: 100%; margin: 2px 0 0; border-radius: 0 4px 4px 4px; }
 /* Reading: a dashed outline with a band sweeping down the range. */
@@ -598,12 +600,23 @@ td.typed { animation: typed 320ms var(--ease) both; }
       const box = el("div", "chart");
       box.style.cssText = "left:" + (42 + ch.left) + "px;top:" + (headH + ch.top) + "px;width:" + ch.width + "px;height:" + ch.height + "px";
       const key = ch.id + ":" + ch.type;
+      const fresh = chartsSeeded && !seenCharts.has(key);
       if (!seenCharts.has(key)) box.classList.add("anim");
       seenCharts.add(key);
       box.innerHTML = chartSvg(ch);
       ui.charts.append(box);
+      // A chart Claude just added: bring it into view, as Sheets does.
+      if (fresh) {
+        const s = ui.scroll, left = 42 + ch.left, top = headH + ch.top;
+        let toLeft = s.scrollLeft, toTop = s.scrollTop;
+        if (left + Math.min(ch.width, s.clientWidth - 60) > s.scrollLeft + s.clientWidth || left < s.scrollLeft + 42) toLeft = Math.max(0, left - 60);
+        if (top + Math.min(ch.height, s.clientHeight - 40) > s.scrollTop + s.clientHeight || top < s.scrollTop) toTop = Math.max(0, top - 40);
+        if (toLeft !== s.scrollLeft || toTop !== s.scrollTop) s.scrollTo({ top: toTop, left: toLeft });
+      }
     }
+    chartsSeeded = true;
   }
+  let chartsSeeded = false; // charts present when the preview opens are not "new"
 
   function select(r, c, mark) {
     if (ui.selected) ui.selected.classList.remove("sel");
@@ -636,9 +649,12 @@ td.typed { animation: typed 320ms var(--ease) both; }
       const s = ui.scroll, fz = ui.frozen;
       const padT = fz ? fz.h : 24, padL = fz ? fz.w : 42;
       const top = y - padT - 16, bottom = y + (rb.bottom - ra.top) + 24;
-      if (!(fz && v.r1 < fz.rows) && (top < s.scrollTop || bottom > s.scrollTop + s.clientHeight)) s.scrollTop = Math.max(0, top);
       const left = x - padL - 24, right = x + (rb.right - ra.left) + 24;
-      if (!(fz && v.c1 < fz.cols) && (left < s.scrollLeft || right > s.scrollLeft + s.clientWidth)) s.scrollLeft = Math.max(0, right - s.clientWidth > left ? left : right - s.clientWidth);
+      let toTop = s.scrollTop, toLeft = s.scrollLeft;
+      if (!(fz && v.r1 < fz.rows) && (top < s.scrollTop || bottom > s.scrollTop + s.clientHeight)) toTop = Math.max(0, top);
+      if (!(fz && v.c1 < fz.cols) && (left < s.scrollLeft || right > s.scrollLeft + s.clientWidth)) toLeft = Math.max(0, right - s.clientWidth > left ? left : right - s.clientWidth);
+      // One scroll for both directions: with smooth scrolling, a second assignment cancels the first one mid-flight.
+      if (toTop !== s.scrollTop || toLeft !== s.scrollLeft) s.scrollTo({ top: toTop, left: toLeft });
     }
   }
 
@@ -655,29 +671,45 @@ td.typed { animation: typed 320ms var(--ease) both; }
     if (row) { row.state = state; row.e = e; row.at = Date.now(); }
     else stepLog.push({ e, state, at: Date.now() });
     renderSteps();
-    ui.step.textContent = "";
-    const label = state === "run" ? (VERBS[e.tool] || "Working") + "…" : state === "fail" ? "Didn't finish" : "Done";
-    ui.step.append(el("span", "st " + state), el("span", "", label));
+    if (state !== "ok") {
+      ui.step.textContent = "";
+      const label = state === "run" ? (VERBS[e.tool] || "Working") + "…" : "Didn't finish";
+      ui.step.append(el("span", "st " + state), el("span", "", label));
+    }
     setLive();
   }
+  // Rows are kept between updates (keyed by step), so only a new row slides in; the rest just change state.
   function renderSteps() {
     if (!ui || !ui.steps) return;
-    ui.steps.textContent = "";
     const hidden = Math.max(0, stepLog.length - MAX_ROWS_SHOWN);
-    if (hidden) ui.steps.append(el("div", "smore", hidden + " earlier step" + (hidden === 1 ? "" : "s")));
-    for (const { e, state } of stepLog.slice(hidden)) {
-      const row = el("div", "srow " + state + (e.kind === "read" ? " read" : ""));
-      row.insertAdjacentHTML("beforeend", SHEET);
-      row.append(el("b", "", e.tool), el("code", "", where(e)), el("span", "st " + state));
-      ui.steps.append(row);
+    const shown = stepLog.slice(hidden);
+    const old = new Map([...ui.steps.querySelectorAll(".srow")].map((r) => [r.dataset.id, r]));
+    const kids = [];
+    if (hidden) kids.push(el("div", "smore", hidden + " earlier step" + (hidden === 1 ? "" : "s")));
+    for (const { e, state } of shown) {
+      const id = String(stepId(e));
+      let row = old.get(id);
+      if (!row) {
+        row = el("div");
+        row.dataset.id = id;
+        row.insertAdjacentHTML("beforeend", SHEET);
+        row.append(el("b"), el("code"), el("span"));
+      } else row.style.animation = "none"; // already on screen: don't slide in again
+      row.className = "srow " + state + (e.kind === "read" ? " read" : "");
+      row.children[1].textContent = e.tool;
+      row.children[2].textContent = where(e);
+      row.children[3].className = "st " + state;
+      kids.push(row);
     }
+    ui.steps.replaceChildren(...kids);
   }
 
   function showSummary() {
     ui.step.textContent = "";
     const edits = history.filter((e) => e.kind !== "read"), reads = history.length - edits.length;
-    const mine = edits.filter((e) => e.tab === P.tab && e.rect);
-    if (mine.length) ui.step.append(el("span", "who", "Claude"), " changed " + label(union(mine.map((e) => e.rect))));
+    const ch = changed();
+    if (ch) ui.step.append(el("span", "who", "Claude"), " changed " + label(ch));
+    else if (edits.some((e) => e.tab === P.tab)) ui.step.append(el("span", "who", "Claude"), " updated " + P.tab);
     else if (P.highlight) ui.step.append(el("span", "who", "Claude"), " changed " + P.highlight.a1);
     else if (reads) ui.step.append(el("span", "who", "Claude"), " is looking through the sheet");
     else ui.step.textContent = canPoll ? "Watching Claude work…" : P.tab;
@@ -689,11 +721,28 @@ td.typed { animation: typed 320ms var(--ease) both; }
   const union = (rs) => rs.length ? { r0: Math.min(...rs.map((r) => r.r0)), c0: Math.min(...rs.map((r) => r.c0)), r1: Math.max(...rs.map((r) => r.r1)), c1: Math.max(...rs.map((r) => r.c1)) } : null;
 
   // Settle on an outline of everything Claude changed on this tab (or the server's highlight).
-  function settle() {
+  // Where the sheet has content: the outline and summary don't count empty cells a clear or format touched.
+  function usedRect() {
+    let r1 = 0, c1 = 0;
+    P.rows.forEach((row, r) => row.forEach((cell, c) => {
+      const v = typeof cell === "string" ? cell : cell && (cell.v || cell.bg);
+      if (v) { r1 = Math.max(r1, r + 1); c1 = Math.max(c1, c + 1); }
+    }));
+    // Only the far edges are known (cells above or left of the view may well have data), so clip those alone.
+    return r1 ? { r0: 0, c0: 0, r1: P.start_row + r1, c1: P.start_col + c1 } : null;
+  }
+  const clip = (r, by) => r && by ? { r0: Math.max(r.r0, by.r0), c0: Math.max(r.c0, by.c0), r1: Math.min(r.r1, by.r1), c1: Math.min(r.c1, by.c1) } : r;
+  const changed = () => {
     const mine = history.filter((e) => e.kind !== "read" && e.tab === P.tab && e.rect).map((e) => e.rect);
-    const v = visible(union(mine) || P.highlight);
+    const r = clip(union(mine), usedRect());
+    return r && r.r1 > r.r0 && r.c1 > r.c0 ? r : null;
+  };
+  function settle() {
+    const v = visible(changed() || P.highlight);
     ui.cur.classList.remove("scan", "sweep");
-    if (v) { moveCursor(v, true); select(v.r0, v.c0, false); }
+    // The outline doesn't move the view: the last step already scrolled to what it changed (a new row at the
+    // bottom, a chart off to the side), and jumping back to the top of a big outline would hide it.
+    if (v) { moveCursor(v, false); select(v.r0, v.c0, false); ui.cur.classList.add("settled"); }
     else ui.cur.classList.remove("on");
     showSummary();
     armDone();
@@ -729,6 +778,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 
   let pendingCharts;
   async function play(edits, next) {
+    if (ui) ui.cur.classList.remove("settled");
     busy++;
     setLive();
     let deferred = null;
@@ -884,9 +934,14 @@ td.typed { animation: typed 320ms var(--ease) both; }
       if (u.edits && u.edits.length) {
         lastEditAt = Date.now();
         enqueue(u.edits, u.preview ? inflate(u.preview) : null);
+      } else if (u.preview) {
+        // A refresh the server held back earlier (to save Google read quota) arriving now: just update the cells.
+        enqueue([], inflate(u.preview));
       }
     } catch {
-      if (++failures >= 3) return stopPolling();
+      // A hiccup (or Google's per-minute quota) shouldn't end the live view: back off, and only give up after a while.
+      if (++failures >= 6) return stopPolling();
+      return schedule(SLOW * failures);
     }
     const quiet = Date.now() - lastEditAt;
     schedule(running() || quiet < ACTIVE_MS ? FAST : quiet > IDLE_SLOW ? SLOW : MID);

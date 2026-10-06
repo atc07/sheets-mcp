@@ -266,6 +266,22 @@ export interface PreviewTab {
   hidden?: boolean | null;
 }
 
+/**
+ * Chart data costs three extra Sheets reads per refresh, and the preview refreshes often while Claude works.
+ * Reuse it for a few seconds when the charts themselves haven't changed (their data catches up shortly after).
+ */
+const CHART_DATA_TTL_MS = 20_000;
+const chartCache = new Map<string, { at: number; key: string; data: PreviewChart[] }>();
+async function cachedChartData(...args: Parameters<typeof chartData>) {
+  const [, id, charts] = args;
+  const key = JSON.stringify(charts.map((c) => [c.chart.chartId, c.chart.spec, c.left, c.top]));
+  const hit = chartCache.get(id);
+  if (hit && hit.key === key && Date.now() - hit.at < CHART_DATA_TTL_MS) return hit.data;
+  const data = await chartData(...args);
+  chartCache.set(id, { at: Date.now(), key, data });
+  return data;
+}
+
 async function chartData(
   api: sheets_v4.Sheets,
   id: string,
@@ -432,12 +448,18 @@ export async function buildPreview(
       const bg = hex(v.effectiveFormat?.backgroundColorStyle?.rgbColor ?? v.effectiveFormat?.backgroundColor);
       return v.formattedValue || v.userEnteredValue?.formulaValue || (bg && bg !== "#ffffff") ? i + 1 : n;
     }, 0);
-  const must = union([opts.highlight, opts.keep, ...placed.map((p) => p.rect)].filter((x): x is Rect => !!x));
-  const mustRows = must ? Math.min(must.r1, r1) - r0 : 0;
-  const mustCols = must ? Math.min(must.c1, c1) - c0 : 0;
   const lastRow = rowData.reduce((n, row, i) => (used(row) ? i + 1 : n), 0);
-  const widthOf = (rowCount: number) => Math.max(1, Math.min(c1 - c0, Math.max(...rowData.slice(0, rowCount).map(used), mustCols) + 1));
-  const fullHeight = Math.max(1, Math.min(r1 - r0, Math.max(lastRow, mustRows) + 1));
+  const lastCol = Math.max(0, ...rowData.map(used));
+  // Charts are always kept in view. Edited areas are too, but only as far as the data goes plus a little
+  // room: clearing or formatting A1:AZ400 on a small table shouldn't fill the preview with empty cells.
+  const chartArea = union(placed.map((p) => p.rect));
+  const edited = union([opts.highlight, opts.keep].filter((x): x is Rect => !!x));
+  const mustRows = Math.max(chartArea ? Math.min(chartArea.r1, r1) - r0 : 0, edited ? Math.min(edited.r1 - r0, r1 - r0, lastRow + 2) : 0);
+  const mustCols = Math.max(chartArea ? Math.min(chartArea.c1, c1) - c0 : 0, edited ? Math.min(edited.c1 - c0, c1 - c0, lastCol + 2) : 0);
+  // An empty or tiny tab still shows a small grid, so the preview doesn't look broken.
+  const MIN_ROWS = Math.min(12, r1 - r0), MIN_COLS = Math.min(6, c1 - c0);
+  const widthOf = (rowCount: number) => Math.max(MIN_COLS, Math.min(c1 - c0, Math.max(...rowData.slice(0, rowCount).map(used), mustCols) + 1));
+  const fullHeight = Math.max(MIN_ROWS, Math.min(r1 - r0, Math.max(lastRow, mustRows) + 1));
   // Keep the result a size the host will pass to the widget; then only as wide as the rows that are kept.
   let height = Math.min(fullHeight, Math.max(mustRows + 1, 20, Math.floor(MAX_CELLS / widthOf(fullHeight))));
   const width = widthOf(height);
@@ -463,7 +485,7 @@ export async function buildPreview(
     .filter((m) => m.r0 >= r0 && m.c0 >= c0 && m.r0 < r0 + height && m.c0 < c0 + width)
     .map((m) => ({ ...m, r1: Math.min(m.r1, r0 + height), c1: Math.min(m.c1, c0 + width) }));
   const shown = placed.filter((p) => p.rect.r0 < r0 + height);
-  const charts = shown.length ? await chartData(api, id, shown, theme, res.data.properties?.spreadsheetTheme?.primaryFontFamily ?? undefined, opts.tabs) : [];
+  const charts = shown.length ? await cachedChartData(api, id, shown, theme, res.data.properties?.spreadsheetTheme?.primaryFontFamily ?? undefined, opts.tabs) : [];
 
   const h = opts.highlight;
   const highlight = h && { ...h, a1: toA1(undefined, h.r0, h.c0, h.r1, h.c1) };

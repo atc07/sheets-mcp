@@ -42,11 +42,44 @@ function api() {
   let c = clients.get(email);
   if (!c) {
     const auth = getAuthClient(email);
+    // Every Sheets request goes through auth.request: count reads (for the preview's budget) and, when Google
+    // says the per-minute quota is used up, wait and send the same request again instead of failing the step.
+    const send = auth.request.bind(auth);
+    auth.request = (async (opts: any) => {
+      if ((opts?.method ?? "GET") === "GET") noteRead(email);
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await send(opts);
+        } catch (e: any) {
+          const status = e?.status ?? e?.response?.status ?? e?.code;
+          if (status !== 429 || attempt >= 4) throw e;
+          await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt + Math.random() * 500));
+        }
+      }
+    }) as typeof auth.request;
     c = { sheets: sheets({ version: "v4", auth }) };
     clients.set(email, c);
   }
   return c;
 }
+
+// ---------- read budget ----------
+
+/** Google allows about 60 Sheets reads per minute per user; the live preview only spends what Claude's work leaves. */
+const reads = new Map<string, number[]>();
+function noteRead(email: string) {
+  const now = Date.now();
+  const list = (reads.get(email) ?? []).filter((t) => now - t < 60_000);
+  list.push(now);
+  reads.set(email, list);
+}
+function readsLastMinute(email = currentAccount.getStore() ?? "") {
+  const now = Date.now();
+  return (reads.get(email) ?? []).filter((t) => now - t < 60_000).length;
+}
+const PREVIEW_READ_BUDGET = 30;
+/** Spreadsheets whose preview skipped a rebuild to save reads, and should get one as soon as there's room. */
+const staleFor = new Set<string>();
 
 const SIGN_IN_WAIT_MS = Number(process.env.SHEETS_MCP_SIGNIN_WAIT_MS ?? 45_000);
 let pendingSignIn: Promise<SignIn> | undefined;
@@ -137,6 +170,37 @@ async function resolveRange(id: string, a1: string) {
     endCol: parsed.endCol ?? sheet.gridProperties?.columnCount ?? 26,
   };
   return { grid, bounded, sheet, parsed };
+}
+
+/**
+ * Add rows or columns so these ranges fit in their tabs, like Sheets does when you paste past the edge.
+ * A new tab has 26 columns and 1000 rows, so writing a "Total" in column AE would otherwise fail.
+ */
+async function growToFit(id: string, ranges: string[]) {
+  const props = await getSheetProps(id);
+  const need = new Map<number, { rows: number; cols: number; sheet: sheets_v4.Schema$SheetProperties }>();
+  for (const a1 of ranges) {
+    const p = parseA1(a1);
+    const sheet = p.sheet === undefined ? props[0] : props.find((x) => x.title === p.sheet);
+    if (!sheet) throw new Error(`No tab named "${p.sheet}". Tabs: ${props.map((x) => x.title).join(", ")}`);
+    const n = need.get(sheet.sheetId!) ?? { rows: 0, cols: 0, sheet };
+    n.rows = Math.max(n.rows, p.endRow ?? p.startRow ?? 0);
+    n.cols = Math.max(n.cols, p.endCol ?? p.startCol ?? 0);
+    need.set(sheet.sheetId!, n);
+  }
+  const requests: Request[] = [];
+  for (const { rows, cols, sheet } of need.values()) {
+    const g = sheet.gridProperties ?? {};
+    if (rows > (g.rowCount ?? 1000)) requests.push({ appendDimension: { sheetId: sheet.sheetId, dimension: "ROWS", length: rows - (g.rowCount ?? 1000) } });
+    if (cols > (g.columnCount ?? 26)) requests.push({ appendDimension: { sheetId: sheet.sheetId, dimension: "COLUMNS", length: cols - (g.columnCount ?? 26) } });
+  }
+  if (requests.length) await batch(id, requests);
+}
+
+/** The tab of the latest step that ran on a tab that exists. */
+async function lastExistingTab(id: string, steps: { tab?: string; failed?: true }[]) {
+  const titles = new Set((await getSheetProps(id)).map((p) => p.title));
+  return [...steps].reverse().find((e) => e.tab && !e.failed && titles.has(e.tab))?.tab;
 }
 
 async function resolveSheet(id: string, name?: string) {
@@ -383,6 +447,8 @@ let activitySeq = 0;
 /** When show_range last ran for each spreadsheet, so tool results can tell Claude whether the user is watching. */
 const previewShownAt = new Map<string, number>();
 const PREVIEW_FRESH_MS = 20 * 60_000;
+/** How far back a newly opened preview catches up: this task's steps, not earlier work in the same sheet. */
+const CATCH_UP_MS = 3 * 60_000;
 const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "create_spreadsheet", "show_range", "preview_updates"]);
 const READS = new Set(["get_spreadsheet_info", "read_range", "read_ranges"]);
 /** Tools that only look (hosts can run these without asking), and tools that can overwrite or remove what's in a sheet. */
@@ -890,7 +956,8 @@ export function createServer() {
   async function openPreview(id: string, range?: string, highlight?: string) {
     // Steps logged while this builds are left for the widget's first poll, so none is skipped or sent twice.
     const upTo = activitySeq;
-    let recent = (await activitySince(id, 0, Math.max(previewShownAt.get(id) ?? 0, Date.now() - 15 * 60_000))).filter((e) => e.seq <= upTo);
+    // Failed steps from before the preview opened aren't worth catching up on.
+    let recent = (await activitySince(id, 0, Math.max(previewShownAt.get(id) ?? 0, Date.now() - CATCH_UP_MS))).filter((e) => e.seq <= upTo && !e.failed);
     // The widget's own first fetch comes right after show_range; give it the same steps to replay.
     const prior = lastReplay.get(id);
     if (!recent.length && prior && Date.now() - prior.at < 60_000) recent = prior.edits;
@@ -903,7 +970,7 @@ export function createServer() {
       ({ rect, truncated } = win);
       outline = win.highlight;
     } else {
-      sheetName = [...recent].reverse().find((e) => e.tab)?.tab;
+      sheetName = await lastExistingTab(id, recent);
       rect = { r0: 0, c0: 0, r1: 100, c1: 26 };
     }
     const sheet = await resolveSheet(id, sheetName);
@@ -957,11 +1024,18 @@ export function createServer() {
       const upTo = activitySeq;
       const edits = (await activitySince(id, since)).filter((e) => e.seq <= upTo);
       const seq = Math.max(since, upTo);
-      // Steps that only just started haven't changed the sheet yet: send them without a rebuild.
-      if (!edits.some((e) => !e.pending)) return { edits, seq };
+      // Steps that only just started haven't changed the sheet yet: send them without a rebuild. When the
+      // minute's reads are mostly used, hold the rebuild too (the steps still show) and catch up on a later poll.
+      const changed = edits.some((e) => !e.pending) || staleFor.has(id);
+      if (!changed) return { edits, seq };
+      if (readsLastMinute() > PREVIEW_READ_BUDGET) {
+        staleFor.add(id);
+        return { edits, seq };
+      }
+      staleFor.delete(id);
       const { sheet: winTab, rect: win } = toRect(range);
-      // Follow Claude to whichever tab it touched last.
-      const lastTab = [...edits].reverse().find((e) => e.tab)?.tab ?? winTab;
+      // Follow Claude to whichever tab it touched last (one that exists: a failed step may name a tab that doesn't).
+      const lastTab = await lastExistingTab(id, edits) ?? winTab;
       const sheet = await resolveSheet(id, lastTab);
       const onTab = edits.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
       const base = sheet.title === winTab ? win : { r0: 0, c0: 0, r1: 100, c1: 26 };
@@ -999,6 +1073,7 @@ export function createServer() {
         const cur = await api().sheets.spreadsheets.values.get({ spreadsheetId: id, range: target, valueRenderOption: "FORMULA" });
         return { would_write: target, current_contents: cur.data.values ?? [], new_contents: values };
       }
+      await growToFit(id, [target]);
       await snapshot(id, target, `write ${target}`, rows, cols);
       const res = await api().sheets.spreadsheets.values.update({
         spreadsheetId: id,
@@ -1023,6 +1098,7 @@ export function createServer() {
     },
     async ({ spreadsheet, source, destination, paste, continue_series, allow_large }) => {
       const id = spreadsheetIdFrom(spreadsheet);
+      await growToFit(id, [destination]);
       const src = await resolveRange(id, source);
       const dst = await resolveRange(id, destination);
       const sp = src.parsed;
@@ -1386,6 +1462,7 @@ export function createServer() {
     { spreadsheet, range, ...formatOptions },
     async (a) => {
       const id = spreadsheetIdFrom(a.spreadsheet);
+      await growToFit(id, [a.range]);
       const { grid: g } = await resolveRange(id, a.range);
       const requests = formatRequests(g, a);
       if (!requests.length) throw new Error("No formatting options provided.");
@@ -1403,6 +1480,7 @@ export function createServer() {
     },
     async ({ spreadsheet, items }) => {
       const id = spreadsheetIdFrom(spreadsheet);
+      await growToFit(id, items.map((i) => i.range));
       const requests: Request[] = [];
       const tabs = new Set<string>();
       for (const item of items) {

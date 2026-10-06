@@ -3,6 +3,7 @@ import { sheets, type sheets_v4 } from "@googleapis/sheets";
 import { z } from "zod";
 import { colToIndex, hexToColor, indexToCol, parseA1, quoteSheet, spreadsheetIdFrom, toA1 } from "./a1.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createRequire } from "node:module";
 import { findSpreadsheets, forgetAccount, looksLikeSpreadsheetRef, rememberSpreadsheet, spreadsheetUrl } from "./recent.js";
 import {
   PREVIEW_HTML,
@@ -24,6 +25,8 @@ import { getAuthClient, getDefaultAccount, listAccounts, removeAccount, resolveA
 type Request = sheets_v4.Schema$Request;
 type Cell = string | number | boolean | null;
 
+/** The package version, reported to MCP clients (dist/server.js sits one folder below package.json). */
+const VERSION: string = createRequire(import.meta.url)("../package.json").version;
 const MAX_WRITE_CELLS = 10_000;
 const UNDO_DEPTH = 20;
 const ERROR_VALUE = /^#(REF!|N\/A|VALUE!|DIV\/0!|NAME\?|NUM!|NULL!|ERROR!|SPILL!|CALC!)/;
@@ -622,7 +625,7 @@ async function needsAccountChoice(tool: string, sheetId: string | undefined, all
 export function createServer() {
   let previewsOn = false;
   const server = new McpServer(
-    { name: "google-sheets", version: "1.0.0" },
+    { name: "google-sheets", version: VERSION },
     {
       instructions:
         "Sheets MCP lets you read and edit the user's Google Sheets. " +
@@ -676,6 +679,19 @@ export function createServer() {
    * tools each signed-in account in turn (last-known, default, others) until one has access.
    * `manageAccounts` tools handle accounts themselves (no automatic sign-in or account arg).
    */
+  // Human-readable tool names, shown by hosts in place of the snake_case name (and required by directories).
+  const TITLES: Record<string, string> = {
+    google_accounts: "Google accounts", find_spreadsheet: "Find a spreadsheet", create_spreadsheet: "Create a spreadsheet",
+    get_spreadsheet_info: "Spreadsheet overview", read_range: "Read cells", read_ranges: "Read several ranges",
+    preview_updates: "Sheet preview updates", write_range: "Write cells", fill_range: "Fill cells", append_rows: "Append rows",
+    clear_range: "Clear cells", find_replace: "Find and replace", undo_last: "Undo last change", manage_tab: "Manage tabs",
+    insert_rows_or_columns: "Insert rows or columns", delete_rows_or_columns: "Delete rows or columns", freeze: "Freeze rows or columns",
+    resize_columns: "Resize columns", merge_cells: "Merge cells", format_range: "Format cells", format_ranges: "Format several ranges",
+    add_conditional_format: "Add conditional formatting", sort_range: "Sort a range", set_filter: "Set a filter",
+    set_data_validation: "Dropdowns and validation", add_chart: "Add a chart", update_chart: "Update a chart", delete_chart: "Delete a chart",
+    add_pivot_table: "Add a pivot table", batch_update: "Advanced batch update",
+  };
+
   function tool<S extends z.ZodRawShape>(
     name: string,
     description: string,
@@ -687,8 +703,11 @@ export function createServer() {
     const config = {
       description,
       inputSchema: fullShape,
-      ...(opts.title && { title: opts.title }),
-      annotations: READ_ONLY.has(name) ? { readOnlyHint: true, openWorldHint: true } : { readOnlyHint: false, destructiveHint: DESTRUCTIVE.has(name), openWorldHint: true },
+      title: opts.title ?? TITLES[name] ?? name,
+      annotations: {
+        title: opts.title ?? TITLES[name] ?? name,
+        ...(READ_ONLY.has(name) ? { readOnlyHint: true, openWorldHint: true } : { readOnlyHint: false, destructiveHint: DESTRUCTIVE.has(name), openWorldHint: true }),
+      },
       // MCP Apps: show_range renders with the preview widget; preview_updates is called only by that widget.
       ...(opts.preview === "show" && { _meta: { ui: { resourceUri: PREVIEW_URI }, "ui/resourceUri": PREVIEW_URI } }),
       ...(opts.preview === "app" && { _meta: { ui: { resourceUri: PREVIEW_URI, visibility: ["app"] } } }),

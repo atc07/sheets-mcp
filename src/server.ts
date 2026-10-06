@@ -78,6 +78,9 @@ function readsLastMinute(email = currentAccount.getStore() ?? "") {
   return (reads.get(email) ?? []).filter((t) => now - t < 60_000).length;
 }
 const PREVIEW_READ_BUDGET = 40;
+/** Past the budget the preview still refreshes now and then, until reads get close to Google's limit. */
+const PREVIEW_SLOW_MS = 6_000, PREVIEW_READ_CEILING = 52;
+const lastRebuild = new Map<string, number>();
 /** Spreadsheets whose preview skipped a rebuild to save reads, and should get one as soon as there's room. */
 const staleFor = new Set<string>();
 
@@ -530,7 +533,9 @@ async function activitySince(id: string, since: number, after = 0): Promise<Prev
     const tab = p.sheet ?? first;
     if (p.startRow === undefined && p.startCol === undefined) return { ...base, tab };
     const { rect } = toRect(e.range);
-    return { ...base, tab, rect, a1: toA1(undefined, rect.r0, rect.c0, rect.r1, rect.c1) };
+    // Label open ranges as written ("A:A", "5:7"), not as the bounded block the preview draws.
+    const open = p.startRow === undefined || p.startCol === undefined || p.endRow === undefined || p.endCol === undefined;
+    return { ...base, tab, rect, a1: open ? e.range.slice(e.range.lastIndexOf("!") + 1) : toA1(undefined, rect.r0, rect.c0, rect.r1, rect.c1) };
   });
 }
 
@@ -1016,8 +1021,9 @@ export function createServer() {
       since: z.number().int().min(0).default(0).describe("Last activity sequence number the preview has seen"),
       initial: z.boolean().default(false).describe("Build the whole preview, as show_range does (when the host didn't pass its result through)"),
       peek: z.boolean().default(false).describe("Only build a preview of `range` (the user picked a tab in the preview); no activity is replayed"),
+      stay: z.boolean().default(false).describe("The user picked the tab in `range`: keep building that tab rather than following Claude"),
     },
-    async ({ spreadsheet, range, highlight, since, initial, peek }) => {
+    async ({ spreadsheet, range, highlight, since, initial, peek, stay }) => {
       const id = spreadsheetIdFrom(spreadsheet);
       if (peek && range) {
         const win = previewWindow(range, undefined);
@@ -1032,18 +1038,21 @@ export function createServer() {
       const edits = (await activitySince(id, since)).filter((e) => e.seq <= upTo);
       const seq = Math.max(since, upTo);
       // Steps that only just started haven't changed the sheet yet: send them without a rebuild. When the
-      // minute's reads are mostly used, hold the rebuild too (the steps still show) and catch up on a later poll.
-      const changed = edits.some((e) => !e.pending) || staleFor.has(id);
+      // minute's reads are mostly used, rebuild only every few seconds (the steps still show) and catch up after.
+      const { sheet: winTab, rect: win } = toRect(range);
+      // A tab the user is looking at only needs a rebuild when Claude changed something on it.
+      const changed = edits.some((e) => !e.pending && (!stay || e.tab === winTab)) || staleFor.has(id);
       if (!changed) return { edits, seq };
-      if (readsLastMinute() > PREVIEW_READ_BUDGET) {
-        if (!staleFor.has(id)) console.error(`Sheet preview: holding the rebuild, ${readsLastMinute()} reads in the last minute`);
+      const used = readsLastMinute();
+      if (used > PREVIEW_READ_BUDGET && (used > PREVIEW_READ_CEILING || Date.now() - (lastRebuild.get(id) ?? 0) < PREVIEW_SLOW_MS)) {
+        if (!staleFor.has(id)) console.error(`Sheet preview: holding the rebuild, ${used} reads in the last minute`);
         staleFor.add(id);
         return { edits, seq };
       }
       staleFor.delete(id);
-      const { sheet: winTab, rect: win } = toRect(range);
+      lastRebuild.set(id, Date.now());
       // Follow Claude to whichever tab it touched last (one that exists: a failed step may name a tab that doesn't).
-      const lastTab = await lastExistingTab(id, edits) ?? winTab;
+      const lastTab = stay ? winTab : (await lastExistingTab(id, edits)) ?? winTab;
       const sheet = await resolveSheet(id, lastTab);
       const onTab = edits.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
       const base = sheet.title === winTab ? win : { r0: 0, c0: 0, r1: 100, c1: 26 };

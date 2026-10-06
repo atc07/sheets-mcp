@@ -56,7 +56,8 @@ export interface PreviewEdit {
 /**
  * One cell as the widget draws it: v = displayed text, f = formula, n = number, b/i/s/u = bold/italic/
  * strike/underline, bg/fg = colors, al/va = alignment, fs = font size (pt), ff = font, w = wraps,
- * bd = borders [top, right, bottom, left] as "width color" (width 1-3, "d" suffix for dashed/dotted).
+ * bd = borders [top, right, bottom, left] as "width color" (width 1-3, "d" suffix for dashed/dotted),
+ * dv = a dropdown ("list") or checkbox ("check"), drawn as Sheets draws them.
  * A cell with nothing but text travels as the bare string.
  */
 export type CompactCell = PreviewCell | string;
@@ -76,6 +77,7 @@ interface PreviewCell {
   ff?: string;
   w?: true;
   bd?: (string | null)[];
+  dv?: "list" | "check";
 }
 
 /** A chart floating over the grid, with its data, so the widget can draw it. */
@@ -120,6 +122,8 @@ export interface Preview {
   rows: CompactCell[][];
   /** Merged blocks inside the view, in sheet coordinates. */
   merges?: Rect[];
+  /** The header row of a basic filter (0-based row, end-exclusive columns), clipped to the view. */
+  filter?: { r: number; c0: number; c1: number };
   charts?: PreviewChart[];
   hide_gridlines?: true;
   /** Frozen panes on this tab (absolute counts, as in Sheets). */
@@ -227,6 +231,9 @@ function toCell(v?: sheets_v4.Schema$CellData): PreviewCell {
   if (t?.fontSize) cell.fs = t.fontSize;
   if (t?.fontFamily) cell.ff = t.fontFamily;
   if (fmt?.wrapStrategy === "WRAP") cell.w = true;
+  const dv = v?.dataValidation?.condition?.type;
+  if (dv === "ONE_OF_LIST" || dv === "ONE_OF_RANGE") cell.dv = "list";
+  if (dv === "BOOLEAN") cell.dv = "check";
   const b = fmt?.borders;
   if (b) {
     const bd = [border(b.top), border(b.right), border(b.bottom), border(b.left)];
@@ -239,12 +246,6 @@ function toCell(v?: sheets_v4.Schema$CellData): PreviewCell {
 function compact(cell: PreviewCell): CompactCell {
   for (const k in cell) if (k !== "v") return cell;
   return cell.v;
-}
-
-/** The cells of one chart source range, in order (row- or column-shaped). */
-function flatten(vr?: sheets_v4.Schema$ValueRange) {
-  const v = (vr?.values ?? []) as unknown[][];
-  return v.length === 1 ? v[0] : v.map((row) => row[0]);
 }
 
 /** How a chart's value axis writes numbers, read from the number format of its first data cell. */
@@ -298,7 +299,7 @@ async function chartData(
   const color = (style?: sheets_v4.Schema$ColorStyle | null, plain?: sheets_v4.Schema$Color | null) =>
     (style?.themeColor && theme.get(style.themeColor)) || hex(style?.rgbColor ?? plain);
 
-  // Lay out every range all the charts need, then fetch them together (two calls, however many charts).
+  // Lay out every range all the charts need, then fetch them together (one call, however many charts).
   const plans = charts.map(({ chart }) => {
     const spec = chart.spec ?? {};
     const basic = spec.basicChart, pie = spec.pieChart;
@@ -317,36 +318,45 @@ async function chartData(
     return toA1(titles.get(g.sheetId ?? 0), columnShaped ? r + h : r, columnShaped ? c : c + h, (columnShaped ? r + h : r) + 1, (columnShaped ? c : c + h) + 1);
   });
   const wanted = formatCells.filter((x): x is string => !!x);
-  const [fmt, raw, cells] = ranges.length
-    ? await Promise.all([
-        api.spreadsheets.values.batchGet({ spreadsheetId: id, ranges, valueRenderOption: "FORMATTED_VALUE" }),
-        api.spreadsheets.values.batchGet({ spreadsheetId: id, ranges, valueRenderOption: "UNFORMATTED_VALUE" }),
-        wanted.length
-          ? api.spreadsheets.get({ spreadsheetId: id, ranges: wanted, includeGridData: true, fields: "sheets.data.rowData.values.effectiveFormat.numberFormat" })
-          : undefined,
-      ])
-    : [undefined, undefined, undefined];
-  // Number formats come back grouped by sheet, in request order within each sheet.
-  const formats = new Map<string, sheets_v4.Schema$NumberFormat | undefined>();
+  // Shown text, raw numbers and number formats all come from one read (each one counts against the quota).
+  const all = [...new Set([...ranges, ...wanted])];
+  const res = all.length
+    ? await api.spreadsheets.get({
+        spreadsheetId: id,
+        ranges: all,
+        includeGridData: true,
+        fields: "sheets(properties/title,data/rowData/values(formattedValue,effectiveValue/numberValue,effectiveFormat/numberFormat))",
+      })
+    : undefined;
+  // Grid data comes back under each tab (in tab order), in request order within the tab.
+  const grids = new Map<string, sheets_v4.Schema$CellData[][]>();
   {
     const bySheet = new Map<string, string[]>();
-    for (const w of wanted) {
-      const sheet = parseA1(w).sheet ?? "";
-      bySheet.set(sheet, [...(bySheet.get(sheet) ?? []), w]);
+    for (const r of all) {
+      const sheet = parseA1(r).sheet ?? "";
+      bySheet.set(sheet, [...(bySheet.get(sheet) ?? []), r]);
     }
-    const groups = [...bySheet.values()];
-    (cells?.data.sheets ?? []).forEach((s, i) => (s.data ?? []).forEach((d, j) => formats.set(groups[i]?.[j] ?? "", d.rowData?.[0]?.values?.[0]?.effectiveFormat?.numberFormat ?? undefined)));
+    for (const s of res?.data.sheets ?? []) {
+      const group = bySheet.get(s.properties?.title ?? "") ?? [];
+      (s.data ?? []).forEach((d, j) => group[j] && grids.set(group[j], (d.rowData ?? []).map((row) => row.values ?? [])));
+    }
   }
+  // The cells of one chart source range in order, whether it's a row or a column.
+  const cellsOf = (r: string) => {
+    const rows = grids.get(r) ?? [];
+    return rows.length === 1 ? rows[0] : rows.map((row) => row[0] ?? {});
+  };
+  const formats = new Map(wanted.map((w) => [w, grids.get(w)?.[0]?.[0]?.effectiveFormat?.numberFormat ?? undefined]));
   const palette = ["ACCENT1", "ACCENT2", "ACCENT3", "ACCENT4", "ACCENT5", "ACCENT6"].map((k) => theme.get(k)).filter((x): x is string => !!x);
 
   return plans.map((p, i): PreviewChart => {
     const { chart, left, top } = charts[i];
     const headers = p.basic?.headerCount ?? 0;
-    const text = (k: number) => flatten(fmt?.data.valueRanges?.[k]).map((x) => (x == null ? "" : String(x)));
+    const text = (k: number) => cellsOf(ranges[k]).map((x) => x.formattedValue ?? "");
     const labels = index[i].domain.flatMap(text).slice(headers);
     const series = index[i].series.map((ks, si) => {
       const name = headers > 0 && ks.length ? text(ks[0])[0] || undefined : undefined;
-      const values = ks.flatMap((k) => flatten(raw?.data.valueRanges?.[k]).map((x) => (typeof x === "number" ? x : null)).slice(headers));
+      const values = ks.flatMap((k) => cellsOf(ranges[k]).map((x) => x.effectiveValue?.numberValue ?? null).slice(headers));
       const c = color(p.series[si]?.colorStyle, p.series[si]?.color);
       return { ...(name && { name }), values, ...(p.series[si]?.type && { type: p.series[si].type! }), ...(c && { color: c }) };
     });
@@ -401,12 +411,12 @@ export async function buildPreview(
     ranges: [toA1(sheet.title, r0, c0, r1, c1), ...(lead ? [toA1(sheet.title, r0 - lead, c0, r0, c1)] : [])],
     includeGridData: true,
     fields:
-      "properties(title,defaultFormat/textFormat/fontSize,spreadsheetTheme),sheets(properties(gridProperties(hideGridlines,frozenRowCount,frozenColumnCount)),merges," +
+      "properties(title,defaultFormat/textFormat/fontSize,spreadsheetTheme),sheets(properties(gridProperties(hideGridlines,frozenRowCount,frozenColumnCount)),merges,basicFilter/range," +
       "charts(chartId,spec(title,fontName,titleTextFormat(fontSize,bold,foregroundColor,foregroundColorStyle),backgroundColor,backgroundColorStyle," +
       "basicChart(chartType,stackedType,headerCount,legendPosition,domains/domain/sourceRange/sources,series(series/sourceRange/sources,type,color,colorStyle))," +
       "pieChart(legendPosition,domain/sourceRange/sources,series/sourceRange/sources,pieHole)),position/overlayPosition)," +
       "data(rowMetadata/pixelSize,columnMetadata/pixelSize,rowData/values(" +
-      "formattedValue,userEnteredValue/formulaValue,effectiveValue/numberValue," +
+      "formattedValue,userEnteredValue/formulaValue,effectiveValue/numberValue,dataValidation/condition/type," +
       "effectiveFormat(backgroundColor,backgroundColorStyle,horizontalAlignment,verticalAlignment,wrapStrategy,borders," +
       "textFormat(bold,italic,strikethrough,underline,fontSize,fontFamily,foregroundColor,foregroundColorStyle)))))",
   });
@@ -457,7 +467,7 @@ export async function buildPreview(
   const mustRows = Math.max(chartArea ? Math.min(chartArea.r1, r1) - r0 : 0, edited ? Math.min(edited.r1 - r0, r1 - r0, lastRow + 2) : 0);
   const mustCols = Math.max(chartArea ? Math.min(chartArea.c1, c1) - c0 : 0, edited ? Math.min(edited.c1 - c0, c1 - c0, lastCol + 2) : 0);
   // An empty or tiny tab still shows a small grid, so the preview doesn't look broken.
-  const MIN_ROWS = Math.min(12, r1 - r0), MIN_COLS = Math.min(6, c1 - c0);
+  const MIN_ROWS = Math.min(12, r1 - r0), MIN_COLS = Math.min(8, c1 - c0);
   const widthOf = (rowCount: number) => Math.max(MIN_COLS, Math.min(c1 - c0, Math.max(...rowData.slice(0, rowCount).map(used), mustCols) + 1));
   const fullHeight = Math.max(MIN_ROWS, Math.min(r1 - r0, Math.max(lastRow, mustRows) + 1));
   // Keep the result a size the host will pass to the widget; then only as wide as the rows that are kept.
@@ -491,6 +501,11 @@ export async function buildPreview(
   const highlight = h && { ...h, a1: toA1(undefined, h.r0, h.c0, h.r1, h.c1) };
   const focus = highlight?.a1 ?? toA1(undefined, r0, c0, r0 + height, c0 + width);
   const grid = s?.properties?.gridProperties;
+  // A filter puts its buttons on the header row: send that row's span when it's in view.
+  const fr = s?.basicFilter?.range;
+  const filter = fr && (fr.startRowIndex ?? 0) >= r0 && (fr.startRowIndex ?? 0) < r0 + height
+    ? { r: fr.startRowIndex ?? 0, c0: Math.max(fr.startColumnIndex ?? 0, c0), c1: Math.min(fr.endColumnIndex ?? c0 + width, c0 + width) }
+    : undefined;
   return {
     spreadsheet_id: id,
     title: res.data.properties?.title ?? "",
@@ -503,6 +518,7 @@ export async function buildPreview(
     row_heights: Array.from({ length: height }, (_, r) => rowPx(r)),
     rows,
     ...(merges.length && { merges }),
+    ...(filter && filter.c1 > filter.c0 && { filter }),
     ...(charts.length && { charts }),
     ...(grid?.hideGridlines && { hide_gridlines: true as const }),
     ...(grid?.frozenRowCount && { frozen_rows: grid.frozenRowCount }),

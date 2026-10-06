@@ -3,7 +3,7 @@
 // show_range, hands the result to the widget, and forwards the widget's own preview_updates calls to the
 // same server process, while a scripted "Claude" makes reads and edits in the background with pauses.
 // Usage: npm run build && node scripts/preview-live.mjs <spreadsheet id or link> [account]
-//        then open http://localhost:4178/?s=build (scenarios: build, wide, long, tabs, fail, read; &dark=1, &w=720)
+//        then open http://localhost:4178/?s=build (scenarios: build, wide, long, tabs, fail, read, tidy, charts, errors, big, text, fill; &dark=1, &w=720)
 import { createServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -44,6 +44,8 @@ async function reset(tabs = ["Sales"]) {
     await call("clear_range", { range: `'${name}'` });
     await call("format_range", { range: `'${name}'`, clear_formatting: true });
     await call("freeze", { tab: name, rows: 0, columns: 0 });
+    await call("set_filter", { range: `'${name}'`, clear: true });
+    await call("set_data_validation", { range: `'${name}'`, type: "clear" });
     // Conditional formats survive a clear; remove them too (one at a time until there are none left).
     const sid = await sheetId(name);
     for (let k = 0; k < 20; k++) if ((await call("batch_update", { requests: [{ deleteConditionalFormatRule: { sheetId: sid, index: 0 } }] })).isError) break;
@@ -136,6 +138,91 @@ const SCENARIOS = {
     await call("read_range", { range: "Sales!A1:B13" });
     await think();
     await call("read_range", { range: "Sales!B2:B13", mode: "formulas" });
+  },
+  // Tidying an existing table: sort, filter, dropdowns, find/replace, rows in and out, a merged title, undo.
+  async tidy() {
+    await think(800);
+    const people = [["Name", "Team", "Status", "Hours"], ["Dana", "Ops", "open", 12], ["Ari", "Sales", "done", 30], ["Kim", "Ops", "open", 7], ["Lee", "Eng", "blocked", 22], ["Sam", "Eng", "done", 15], ["Jo", "Sales", "open", 9]];
+    await call("write_range", { range: "Sales!A1", values: people });
+    await think();
+    await call("sort_range", { range: "Sales!A1:D7", sort_by: [{ column: "D", ascending: false }] });
+    await think();
+    await call("find_replace", { find: "open", replacement: "Open", sheet: "Sales", match_entire_cell: true });
+    await think();
+    await call("set_data_validation", { range: "Sales!C2:C7", type: "dropdown", options: ["Open", "done", "blocked"] });
+    await think();
+    await call("insert_rows_or_columns", { tab: "Sales", dimension: "ROWS", before: "1", count: 1 });
+    await think();
+    await call("write_range", { range: "Sales!A1", values: [["Team hours, week 40"]] });
+    await think(600);
+    await call("merge_cells", { range: "Sales!A1:D1" });
+    await think(600);
+    await call("format_range", { range: "Sales!A1", bold: true, font_size: 14, horizontal_alignment: "CENTER" });
+    await think();
+    await call("set_filter", { range: "Sales!A2:D8" });
+    await think();
+    await call("delete_rows_or_columns", { range: "Sales!8:8" });
+    await think();
+    await call("write_range", { range: "Sales!D3", values: [[999]] });
+    await think();
+    await call("undo_last", {});
+  },
+  // Charts Claude adds, changes and removes.
+  async charts() {
+    await think(800);
+    await call("write_range", { range: "Sales!A1", values: [["Quarter", "North", "South"], ["Q1", 120, 90], ["Q2", 150, 110], ["Q3", 170, 160], ["Q4", 210, 180]] });
+    await think();
+    const a = await call("add_chart", { data_range: "Sales!A1:C5", chart_type: "COLUMN", title: "Sales by quarter", anchor_cell: "Sales!E1" });
+    const id = Number(/chart[_ ]?id\D{0,4}(\d+)/i.exec(a.content?.[0]?.text ?? "")?.[1]);
+    await think();
+    await call("add_chart", { data_range: "Sales!A1:B5", chart_type: "PIE", title: "North share", anchor_cell: "Sales!E22" });
+    await think();
+    if (id) await call("update_chart", { chart_id: id, chart_type: "LINE", title: "Sales trend" });
+    await think();
+    if (id) await call("update_chart", { chart_id: id, stacked: true, chart_type: "AREA" });
+    await think();
+    if (id) await call("delete_chart", { chart_id: id });
+  },
+  // Formulas that go wrong, then get fixed.
+  async errors() {
+    await think(800);
+    await call("write_range", { range: "Sales!A1", values: [["Item", "Units", "Price", "Per unit"], ["A", 10, 50, "=C2/B2"], ["B", 0, 40, "=C3/B3"], ["C", 5, 20, "=C4/B4"], ["Ref", "", "", "=VLOOKUP(\"Z\",A2:B4,2,FALSE)"]] });
+    await think();
+    await call("write_range", { range: "Sales!D2:D5", values: [["=IFERROR(C2/B2,\"\")"], ["=IFERROR(C3/B3,\"\")"], ["=IFERROR(C4/B4,\"\")"], ["=IFERROR(VLOOKUP(\"Z\",A2:B4,2,FALSE),\"none\")"]] });
+  },
+  // A big sheet: 1,000 rows by 12 columns, read back in one go.
+  async big() {
+    await think(800);
+    const rows = Array.from({ length: 1000 }, (_, i) => [`R${i + 1}`, ...Array.from({ length: 11 }, (_, j) => (i * 13 + j * 7) % 500)]);
+    await call("write_range", { range: "Sales!A1", values: [["Row", ...months.slice(0, 11)], ...rows], allow_large: true });
+    await think();
+    await call("read_range", { range: "Sales" });
+    await think();
+    await call("format_range", { range: "Sales!A1:L1", bold: true, background_color: "#fff2cc" });
+  },
+  // Odd text: long, accented, emoji, wrapped, percentages and dates.
+  async text() {
+    await think(800);
+    await call("write_range", { range: "Sales!A1", values: [["Note", "Owner", "Done", "Due"], ["A very long note that keeps going well past the edge of its column so it has to spill or wrap somewhere", "Zoë Ñúñez", 0.42, "2026-11-03"], ["Café ☕ order 🚀", "李雷", 1, "2026-12-24"], ["", "", "", ""], ["Short", "O'Brien \"OB\"", 0.075, "2027-01-01"]] });
+    await think();
+    await call("format_ranges", { items: [{ range: "Sales!C2:C5", number_format: { type: "PERCENT", pattern: "0.0%" } }, { range: "Sales!D2:D5", number_format: { type: "DATE", pattern: "mmm d, yyyy" } }, { range: "Sales!A1:D1", bold: true, borders: { sides: "bottom", style: "SOLID" } }] });
+    await think();
+    await call("format_range", { range: "Sales!A2:A5", wrap: "WRAP" });
+    await think();
+    await call("resize_columns", { range: "Sales!A:A", width: 220 });
+  },
+  // Fill a formula down and a series across, the way the fill handle does.
+  async fill() {
+    await think(800);
+    await call("write_range", { range: "Sales!A1", values: [["Week", "Units", "Price", "Revenue"], [1, 12, 9.5, "=B2*C2"], [2, 15, 9.5, ""], ["", 9, 9.5, ""], ["", 20, 10, ""], ["", 18, 10, ""]] });
+    await think();
+    await call("fill_range", { source: "Sales!A2:A3", destination: "Sales!A2:A6", continue_series: true });
+    await think();
+    await call("fill_range", { source: "Sales!D2", destination: "Sales!D2:D6", paste: "formulas" });
+    await think();
+    await call("clear_range", { range: "Sales!C2:C6" });
+    await think();
+    await call("undo_last", {});
   },
 };
 const SETUP = { tabs: ["Sales", "Orders"] };

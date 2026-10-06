@@ -72,6 +72,15 @@ td.va-t { vertical-align: top; } td.va-m { vertical-align: middle; }
 td.w { white-space: normal; overflow-wrap: anywhere; }
 td .wc { overflow: hidden; }
 td.ovf { overflow: visible; }
+td.dv-check { text-align: center; }
+td.err::after { content: ""; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 6px 6px 0; border-color: transparent #d93025 transparent transparent; }
+.cbx { display: inline-block; width: 12px; height: 12px; border: 1.5px solid #5f6368; border-radius: 2px; vertical-align: -2px; box-sizing: border-box; }
+.cbx.on { background: #1a73e8; border-color: #1a73e8; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.3 2.3 4.7-4.9' fill='none' stroke='white' stroke-width='1.8'/%3E%3C/svg%3E"); }
+.chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; box-sizing: border-box; padding: 0 4px 0 8px; height: 17px; margin-top: 1px; border-radius: 9px; background: #e8eaed; color: #202124; font-size: 0.92em; overflow: hidden; }
+.chip.empty { background: none; float: right; padding: 0; }
+.chip svg { width: 10px; height: 10px; flex: none; fill: #5f6368; }
+.fbtn { position: absolute; right: 3px; bottom: 3px; width: 13px; height: 13px; border-radius: 2px; background: #fff; display: grid; place-items: center; }
+.fbtn svg { width: 11px; height: 11px; fill: none; stroke: #188038; stroke-width: 1.5; stroke-linecap: round; }
 /* Frozen rows and columns stay put while the rest scrolls, with Sheets' heavier line along their edge. */
 td.fz { position: sticky; z-index: 4; }
 td.fz.fzb { z-index: 5; }
@@ -103,7 +112,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .cur.on { opacity: 1; }
 /* At rest the outline barely tints, so the sheet's own colors read through. */
 .cur.settled { background: rgba(217,119,87,.04); }
-.cur span { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; background: var(--claude); color: #fff; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
+.cur span { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; background: var(--claude); color: #fff; font-size: calc(10.5px / var(--zoom, 1)); font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
 .cur.top span { bottom: auto; top: 100%; margin: 2px 0 0; border-radius: 0 4px 4px 4px; }
 /* Reading: a dashed outline with a band sweeping down the range. */
 .cur.scan { border-style: dashed; background: rgba(217,119,87,.05); overflow: visible; }
@@ -132,6 +141,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .tb:hover { color: var(--fg); background: rgba(128,128,128,.12); }
 .tb.on { color: var(--accent); background: var(--surface); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .tb.busy { opacity: .55; }
+.tb .aid { display: none; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--claude); vertical-align: 1px; animation: aipulse 1.4s ease-in-out infinite; }
+.tb.ai .aid { display: inline-block; }
+@keyframes aipulse { 50% { opacity: .35; } }
 .tb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* The steps list: one row per read or edit, like Claude's own tool rows. */
 .steps { display: grid; gap: 6px; padding: 10px 12px 12px; box-shadow: inset 0 1px 0 var(--grid); }
@@ -233,11 +245,21 @@ td.typed { animation: typed 320ms var(--ease) both; }
       const box = el("div", "wc", cell.v);
       box.style.maxHeight = Math.max(0, h - 2) + "px";
       td.append(box);
+    } else if (cell.dv === "check") {
+      td.append(el("span", "cbx" + (/^true$/i.test(cell.v) ? " on" : "")));
+    } else if (cell.dv === "list") {
+      // Sheets' dropdown chip: the value in a grey pill with an arrow (just the arrow when empty).
+      const chip = el("span", cell.v ? "chip" : "chip empty", cell.v);
+      chip.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 10 10"><path d="M2 3.5h6L5 7z"/></svg>');
+      td.append(chip);
     } else td.textContent = cell.v;
+    const f = P && P.filter;
+    if (f && r + P.start_row === f.r && c + P.start_col >= f.c0 && c + P.start_col < f.c1)
+      td.insertAdjacentHTML("beforeend", '<span class="fbtn"><svg viewBox="0 0 12 12"><path d="M1.5 2.5h9M3.5 6h5M5 9.5h2"/></svg></span>');
     const al = cell.al || (cell.n ? "r" : "l");
-    let cls = "al-" + al + (cell.w ? " w" : "") + (cell.va ? " va-" + cell.va : "");
+    let cls = "al-" + al + (cell.w ? " w" : "") + (cell.va ? " va-" + cell.va : "") + (cell.dv ? " dv-" + cell.dv : "") + (ERR.test(cell.v) ? " err" : "");
     // Like Sheets, unwrapped left-aligned text spills into empty cells to its right.
-    if (!cell.w && al === "l" && cell.v && P && P.rows[r]) {
+    if (!cell.w && !cell.dv && al === "l" && cell.v && P && P.rows[r]) {
       const next = P.rows[r][c + 1];
       if (!next || (!next.v && !(ui && ui.covered.has(r + "," + (c + 1))))) cls += " ovf";
     }
@@ -257,6 +279,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
       if (fc && c === fz.cols - 1) cls += " fzc-end";
     }
     td.className = cls;
+    // Text in the cell to the left stops spilling here once this cell has something in it.
+    const left = cell.v && ui && ui.cells && ui.cells[r] && ui.cells[r][c - 1];
+    if (left) left.classList.remove("ovf");
     if (cell.b) st.fontWeight = "700";
     if (cell.i) st.fontStyle = "italic";
     if (cell.s || cell.u) st.textDecoration = [cell.s && "line-through", cell.u && "underline"].filter(Boolean).join(" ");
@@ -271,10 +296,13 @@ td.typed { animation: typed 320ms var(--ease) both; }
     });
     td.title = cell.v.length > 14 ? cell.v : "";
   }
+  // The grid is drawn a little smaller than Sheets at 100%, so more of the sheet fits in the chat.
+  const ZOOM = 0.8;
+  const ERR = /^#(DIV[/]0!|N[/]A|REF!|VALUE!|NAME[?]|NUM!|NULL!|ERROR!|SPILL!|CALC!)$/;
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const sameShape = (a, b) => a && b && a.tab === b.tab && a.start_row === b.start_row && a.start_col === b.start_col && a.rows.length === b.rows.length &&
     same(a.col_widths, b.col_widths) && same(a.row_heights, b.row_heights) && same(a.merges, b.merges) && a.hide_gridlines === b.hide_gridlines &&
-    a.frozen_rows === b.frozen_rows && a.frozen_cols === b.frozen_cols && same(a.tabs, b.tabs);
+    a.frozen_rows === b.frozen_rows && a.frozen_cols === b.frozen_cols && same(a.tabs, b.tabs) && same(a.filter, b.filter);
 
   function render(p, entering) {
     card.textContent = "";
@@ -358,6 +386,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
     cur.append(el("span", "", "Claude"), el("div", "band"));
     const charts = el("div", "charts");
     wrap.append(table, charts, cur);
+    wrap.style.zoom = ZOOM;
+    wrap.style.setProperty("--zoom", ZOOM);
     scroll.append(wrap);
 
     const foot = el("div", "foot");
@@ -374,10 +404,11 @@ td.typed { animation: typed 320ms var(--ease) both; }
     const tabs = el("div", "tabs");
     for (const t of hasStrip ? p.tabs : []) {
       if (t.hidden) continue;
-      const b = el("button", "tb" + (t.title === p.tab ? " on" : "") + (t.title === switching ? " busy" : ""), t.title);
+      const b = el("button", "tb" + (t.title === p.tab ? " on" : "") + (t.title === switching ? " busy" : ""));
       b.type = "button";
-      b.title = t.title === p.tab ? "Shown now" : "Show " + t.title;
-      b.addEventListener("click", () => switchTab(t.title));
+      b.dataset.tab = t.title;
+      b.append(el("i", "aid"), el("span", "", t.title));
+      b.addEventListener("click", () => (aiAt && t.title === aiAt.tab ? focusClaude() : switchTab(t.title)));
       tabs.append(b);
     }
     inner.append(fbar, scroll, ...(hasStrip ? [tabs] : []), steps);
@@ -386,15 +417,26 @@ td.typed { animation: typed 320ms var(--ease) both; }
     card.append(bar, fold, foot);
     ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, frozen, steps, tabs, selected: null };
     renderSteps();
+    markClaudeTab();
     renderCharts();
   }
 
   // The user picked a tab in the strip: fetch that tab as it is now and show it. Claude's next edit
   // brings the view back to wherever Claude is working.
-  async function switchTab(title) {
-    if (!canPoll || !P || switching || title === P.tab) return;
+  // A tab the user picks stays shown (Claude's dot marks where it's working) until they click Claude's tab.
+  let pinned = null, rushing = false; // rushing: a tab switch is waiting, so finish the animation quickly
+  function switchTab(title, byUser = true) {
+    if (!canPoll || !P || switching || title === P.tab) return Promise.resolve();
     switching = title;
-    for (const b of ui.tabs.children) b.classList.toggle("busy", b.textContent === title);
+    pinned = byUser ? title : null;
+    for (const b of ui.tabs.children) b.classList.toggle("busy", b.dataset.tab === title);
+    rushing = true;
+    // In the queue, so an animation still typing into the old tab finishes before the grid is replaced.
+    queue = queue.then(() => showTab(title)).catch((err) => console.error("Sheet preview:", err));
+    return queue;
+  }
+  async function showTab(title) {
+    rushing = false;
     const quoted = /^[A-Za-z_][A-Za-z0-9_]*$/.test(title) ? title : "'" + title.replace(/'/g, "''") + "'";
     try {
       const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: quoted + "!A1:Z100", peek: true, since: seq, ...(account && { account }) } });
@@ -601,7 +643,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
     for (const ch of P.charts) {
       const box = el("div", "chart");
       box.style.cssText = "left:" + (42 + ch.left) + "px;top:" + (headH + ch.top) + "px;width:" + ch.width + "px;height:" + ch.height + "px";
-      const key = ch.id + ":" + ch.type;
+      // A chart Claude changed (type, title, stacking, place or size) counts as new: it redraws and comes into view.
+      const key = [ch.id, ch.type, ch.title, ch.stacked, ch.row, ch.col, ch.width, ch.height].join(":");
       const fresh = seeded && !seenCharts.has(key);
       if (!seenCharts.has(key)) box.classList.add("anim");
       seenCharts.add(key);
@@ -615,10 +658,10 @@ td.typed { animation: typed 320ms var(--ease) both; }
   let chartToShow = null;   // a chart Claude just added, scrolled into view once the step's animation is done
   function showNewChart() {
     if (!chartToShow) return;
-    const c = chartToShow, s = ui.scroll;
+    const s = ui.scroll, c = Object.fromEntries(Object.entries(chartToShow).map(([k, v]) => [k, v * ZOOM]));
     chartToShow = null;
     let toLeft = s.scrollLeft, toTop = s.scrollTop;
-    if (c.left + Math.min(c.width, s.clientWidth - 60) > s.scrollLeft + s.clientWidth || c.left < s.scrollLeft + 42) toLeft = Math.max(0, c.left - 60);
+    if (c.left + Math.min(c.width, s.clientWidth - 60) > s.scrollLeft + s.clientWidth || c.left < s.scrollLeft + 42 * ZOOM) toLeft = Math.max(0, c.left - 60);
     if (c.top + Math.min(c.height, s.clientHeight - 40) > s.scrollTop + s.clientHeight || c.top < s.scrollTop) toTop = Math.max(0, c.top - 40);
     if (toLeft !== s.scrollLeft || toTop !== s.scrollTop) s.scrollTo({ top: toTop, left: toLeft });
   }
@@ -645,14 +688,15 @@ td.typed { animation: typed 320ms var(--ease) both; }
   function moveCursor(v, scrollTo) {
     const a = ui.cells[v.r0][v.c0], b = ui.cells[v.r1][v.c1];
     const w = ui.wrap.getBoundingClientRect(), ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    // Rects are measured on screen (zoomed); the outline is placed inside the zoomed grid, so it's unzoomed.
     const x = ra.left - w.left - 1, y = ra.top - w.top - 1;
-    Object.assign(ui.cur.style, { transform: "translate(" + x + "px," + y + "px)", width: rb.right - ra.left + 1 + "px", height: rb.bottom - ra.top + 1 + "px" });
+    Object.assign(ui.cur.style, { transform: "translate(" + x / ZOOM + "px," + y / ZOOM + "px)", width: (rb.right - ra.left + 1) / ZOOM + "px", height: (rb.bottom - ra.top + 1) / ZOOM + "px" });
     ui.cur.classList.toggle("top", v.r0 === 0);
     ui.cur.classList.add("on");
     if (scrollTo) {
       // Keep the cursor in view both ways, clear of the header, row numbers and any frozen panes (which stay pinned).
       const s = ui.scroll, fz = ui.frozen;
-      const padT = fz ? fz.h : 24, padL = fz ? fz.w : 42;
+      const padT = (fz ? fz.h : 24) * ZOOM, padL = (fz ? fz.w : 42) * ZOOM;
       const top = y - padT - 16, bottom = y + (rb.bottom - ra.top) + 24;
       const left = x - padL - 24, right = x + (rb.right - ra.left) + 24;
       let toTop = s.scrollTop, toLeft = s.scrollLeft;
@@ -672,10 +716,12 @@ td.typed { animation: typed 320ms var(--ease) both; }
   // Each step has one row in the steps list, keyed by id: it appears when the tool starts and
   // settles when it finishes. The footer just says what Claude is doing.
   function showStep(state, e) {
+    if (e.tab && state !== "fail") aiAt = { tab: e.tab, rect: e.rect || (aiAt && aiAt.tab === e.tab ? aiAt.rect : null) };
     const row = stepLog.find((x) => stepId(x.e) === stepId(e));
     if (row) { row.state = state; row.e = e; row.at = Date.now(); }
     else stepLog.push({ e, state, at: Date.now() });
     renderSteps();
+    markClaudeTab();
     if (state !== "ok") {
       ui.step.textContent = "";
       const label = state === "run" ? (VERBS[e.tool] || "Working") + "…" : "Didn't finish";
@@ -749,7 +795,14 @@ td.typed { animation: typed 320ms var(--ease) both; }
     ui.cur.classList.remove("scan", "sweep");
     // The outline doesn't move the view: the last step already scrolled to what it changed (a new row at the
     // bottom, a chart off to the side), and jumping back to the top of a big outline would hide it.
-    if (v) { moveCursor(v, false); select(v.r0, v.c0, false); ui.cur.classList.add("settled"); }
+    if (v) {
+      moveCursor(v, false);
+      // ...unless none of it is in view (say a chart off to the side was just deleted): then go back to it.
+      const b = ui.scroll.getBoundingClientRect(), tl = ui.cells[v.r0][v.c0].getBoundingClientRect(), br = ui.cells[v.r1][v.c1].getBoundingClientRect();
+      if (br.right <= b.left + 42 * ZOOM || tl.left >= b.right || br.bottom <= b.top + 24 * ZOOM || tl.top >= b.bottom) moveCursor(v, true);
+      select(v.r0, v.c0, false);
+      ui.cur.classList.add("settled");
+    }
     else ui.cur.classList.remove("on");
     showSummary();
     armDone();
@@ -769,13 +822,43 @@ td.typed { animation: typed 320ms var(--ease) both; }
     clearTimeout(doneTimer);
     done = on;
     card.classList.toggle("done", on);
-    if (ui) { showSummary(); setLive(); }
+    if (ui) { showSummary(); setLive(); markClaudeTab(); }
+  }
+
+  // Where Claude is working: its tab gets an orange dot while it works, and clicking that tab
+  // (even the one already shown) brings its latest step into view.
+  let aiAt = null;
+  function markClaudeTab() {
+    if (!ui || !ui.tabs) return;
+    for (const b of ui.tabs.children) {
+      const here = !done && !!aiAt && b.dataset.tab === aiAt.tab;
+      b.classList.toggle("ai", here);
+      b.title = here ? "Claude is working here: click to see where" : b.classList.contains("on") ? "Shown now" : "Show " + b.dataset.tab;
+    }
+  }
+  async function focusClaude() {
+    const at = aiAt;
+    if (!at || !P) return;
+    pinned = null;
+    if (P.tab !== at.tab) await switchTab(at.tab, false);
+    if (!P || P.tab !== at.tab) return;
+    if (done) { keepOpen = true; setDone(false); }
+    const v = visible(at.rect);
+    if (!v) return;
+    ui.cur.classList.remove("settled");
+    moveCursor(v, true);
+    select(v.r0, v.c0, false);
+    for (let r = v.r0; r <= v.r1; r++) for (let c = v.c0; c <= v.c1; c++) {
+      const td = ui.cells[r][c];
+      td.classList.remove("flash"); void td.offsetWidth; td.classList.add("flash");
+    }
   }
 
   // ---------- animation ----------
   // Animate edits one after another. With a new preview, cells inside each edit's range change
   // as the cursor reaches them; everything else updates straight away.
   function enqueue(edits, next) {
+    if (pinned && next && next.tab !== pinned) next = null; // the user is looking at another tab
     backlog++;
     clearTimeout(doneTimer);
     if (done) setDone(false);
@@ -824,7 +907,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     }
     // Pace each step by how much is waiting: a lone edit plays in full, a pile-up catches up quickly.
     let i = 0;
-    const pace = () => (backlog > 2 ? 0.25 : backlog > 1 || edits.length - i > 3 ? 0.45 : 1);
+    const pace = () => (rushing ? 0.05 : backlog > 2 ? 0.25 : backlog > 1 || edits.length - i > 3 ? 0.45 : 1);
     const d = (ms) => sleep(Math.round(ms * pace()));
     for (const e of edits) {
       i++;
@@ -872,13 +955,13 @@ td.typed { animation: typed 320ms var(--ease) both; }
         const todo = deferred ? deferred.filter((x) => x.r >= v.r0 && x.r <= v.r1 && x.c >= v.c0 && x.c <= v.c1) : [];
         const tds = [];
         for (let r = v.r0; r <= v.r1; r++) for (let c = v.c0; c <= v.c1; c++) tds.push({ r, c });
-        const gap = Math.min(45, 700 / Math.max(1, tds.length)) * pace();
+        const gap = Math.min(45, 700 / Math.max(1, tds.length));
         for (const t of tds) {
           const td = ui.cells[t.r][t.c];
           const x = todo.find((y) => y.r === t.r && y.c === t.c);
           if (x) { P.rows[x.r][x.c] = x.cell; paint(td, x.cell, x.r, x.c); td.classList.add("typed"); deferred.splice(deferred.indexOf(x), 1); }
           td.classList.remove("flash"); void td.offsetWidth; td.classList.add("flash");
-          if (gap >= 4) await sleep(gap);
+          if (gap * pace() >= 4) await sleep(gap * pace());
         }
         select(v.r0, v.c0, false);
         await d(380);
@@ -934,7 +1017,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     if (idle > IDLE_STOP) return stopPolling();
     if (document.hidden) return schedule(SLOW);
     try {
-      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: P.window, since: seq, ...(account && { account }) } });
+      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: P.window, since: seq, ...(pinned && { stay: true }), ...(account && { account }) } });
       const u = res && res.structuredContent;
       if (!u || res.isError) throw new Error("bad update");
       failures = 0;
@@ -982,8 +1065,10 @@ td.typed { animation: typed 320ms var(--ease) both; }
       for (const e of s.edits) {
         if (!e.pending && !e.failed) history.push(e);
         stepLog.push({ e, state: e.pending ? "run" : e.failed ? "fail" : "ok", at: Date.now() });
+        if (e.tab && !e.failed) aiAt = { tab: e.tab, rect: e.rect || null };
       }
       renderSteps();
+      markClaudeTab();
     }
     settle();
     startPolling();
@@ -1022,7 +1107,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
       return m.error ? reject(m.error) : resolve(m.result);
     }
     if (m.method === "ui/notifications/tool-input") toolArgs = (m.params && m.params.arguments) || {};
-    else if (m.method === "ui/notifications/tool-result") onResult(m.params);
+    // A preview that fails to draw falls back to the quiet note rather than an empty box.
+    else if (m.method === "ui/notifications/tool-result") onResult(m.params).catch((err) => { console.error("Sheet preview:", err); unavailable("render error"); });
     else if (m.method === "ui/notifications/host-context-changed") applyContext(m.params);
     else if (m.method === "ui/resource-teardown" && m.id != null) { stopPolling(); send({ id: m.id, result: {} }); }
     else if (m.id != null && m.method) send({ id: m.id, error: { code: -32601, message: "Method not found" } });

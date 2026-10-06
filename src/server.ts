@@ -77,7 +77,7 @@ function readsLastMinute(email = currentAccount.getStore() ?? "") {
   const now = Date.now();
   return (reads.get(email) ?? []).filter((t) => now - t < 60_000).length;
 }
-const PREVIEW_READ_BUDGET = 30;
+const PREVIEW_READ_BUDGET = 40;
 /** Spreadsheets whose preview skipped a rebuild to save reads, and should get one as soon as there's room. */
 const staleFor = new Set<string>();
 
@@ -127,13 +127,17 @@ function errorMessage(e: any): string {
 
 // ---------- shared helpers ----------
 
-/** Tab properties, kept a few seconds: the preview asks several times per poll. Any batchUpdate drops the entry. */
+/**
+ * Tab properties, kept a little while: the live preview needs them on every rebuild, and each fetch counts
+ * against Google's per-minute read quota. Changes that touch tabs or their size drop the entry (see batch()),
+ * and asking for a tab the cache doesn't have fetches again, in case it was just added in Sheets.
+ */
 const propsCache = new Map<string, { at: number; props: sheets_v4.Schema$SheetProperties[] }>();
-const PROPS_TTL_MS = 5_000;
+const PROPS_TTL_MS = 20_000;
 
-async function getSheetProps(id: string) {
+async function getSheetProps(id: string, want?: string) {
   const cached = propsCache.get(id);
-  if (cached && Date.now() - cached.at < PROPS_TTL_MS) return cached.props;
+  if (cached && Date.now() - cached.at < PROPS_TTL_MS && (want === undefined || cached.props.some((p) => p.title === want))) return cached.props;
   const res = await api().sheets.spreadsheets.get({
     spreadsheetId: id,
     fields: "sheets.properties",
@@ -151,7 +155,7 @@ async function previewTabs(id: string): Promise<PreviewTab[]> {
 /** Resolve an A1 range to a GridRange (sheet name -> sheetId). Omitted sheet means the first tab. */
 async function resolveRange(id: string, a1: string) {
   const parsed = parseA1(a1);
-  const props = await getSheetProps(id);
+  const props = await getSheetProps(id, parsed.sheet);
   const sheet = parsed.sheet === undefined ? props[0] : props.find((p) => p.title === parsed.sheet);
   if (!sheet) {
     throw new Error(`No tab named "${parsed.sheet}". Tabs: ${props.map((p) => p.title).join(", ")}`);
@@ -177,7 +181,7 @@ async function resolveRange(id: string, a1: string) {
  * A new tab has 26 columns and 1000 rows, so writing a "Total" in column AE would otherwise fail.
  */
 async function growToFit(id: string, ranges: string[]) {
-  const props = await getSheetProps(id);
+  const props = await getSheetProps(id, ranges.map((a1) => parseA1(a1).sheet).find((t) => t !== undefined));
   const need = new Map<number, { rows: number; cols: number; sheet: sheets_v4.Schema$SheetProperties }>();
   for (const a1 of ranges) {
     const p = parseA1(a1);
@@ -204,14 +208,17 @@ async function lastExistingTab(id: string, steps: { tab?: string; failed?: true 
 }
 
 async function resolveSheet(id: string, name?: string) {
-  const props = await getSheetProps(id);
+  const props = await getSheetProps(id, name);
   const sheet = name === undefined ? props[0] : props.find((p) => p.title === name);
   if (!sheet) throw new Error(`No tab named "${name}". Tabs: ${props.map((p) => p.title).join(", ")}`);
   return sheet;
 }
 
+/** Requests that change a tab's properties (title, size, frozen panes, hidden) or the list of tabs. */
+const TAB_CHANGES = new Set(["addSheet", "deleteSheet", "duplicateSheet", "updateSheetProperties", "appendDimension", "insertDimension", "deleteDimension", "insertRange", "deleteRange", "appendCells", "pasteData", "copyPaste", "cutPaste", "moveDimension"]);
+
 async function batch(id: string, requests: Request[]) {
-  propsCache.delete(id);
+  if (requests.some((r) => Object.keys(r).some((k) => TAB_CHANGES.has(k)))) propsCache.delete(id);
   const res = await api().sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests } });
   return res.data;
 }
@@ -1029,6 +1036,7 @@ export function createServer() {
       const changed = edits.some((e) => !e.pending) || staleFor.has(id);
       if (!changed) return { edits, seq };
       if (readsLastMinute() > PREVIEW_READ_BUDGET) {
+        if (!staleFor.has(id)) console.error(`Sheet preview: holding the rebuild, ${readsLastMinute()} reads in the last minute`);
         staleFor.add(id);
         return { edits, seq };
       }
@@ -1149,6 +1157,7 @@ export function createServer() {
     async ({ spreadsheet, range, values }) => {
       const id = spreadsheetIdFrom(spreadsheet);
       if (cellCount(values) > MAX_WRITE_CELLS) throw new Error(`Append exceeds ${MAX_WRITE_CELLS} cells; split it up.`);
+      propsCache.delete(id); // appending can add rows to the tab
       const res = await api().sheets.spreadsheets.values.append({
         spreadsheetId: id,
         range,

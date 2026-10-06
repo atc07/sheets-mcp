@@ -594,29 +594,34 @@ td.typed { animation: typed 320ms var(--ease) both; }
   const seenCharts = new Set();
   function renderCharts() {
     ui.charts.textContent = "";
+    const seeded = chartsSeeded;
+    chartsSeeded = true;
     if (!P.charts) return;
     const headH = ui.head.offsetHeight;
     for (const ch of P.charts) {
       const box = el("div", "chart");
       box.style.cssText = "left:" + (42 + ch.left) + "px;top:" + (headH + ch.top) + "px;width:" + ch.width + "px;height:" + ch.height + "px";
       const key = ch.id + ":" + ch.type;
-      const fresh = chartsSeeded && !seenCharts.has(key);
+      const fresh = seeded && !seenCharts.has(key);
       if (!seenCharts.has(key)) box.classList.add("anim");
       seenCharts.add(key);
       box.innerHTML = chartSvg(ch);
       ui.charts.append(box);
       // A chart Claude just added: bring it into view, as Sheets does.
-      if (fresh) {
-        const s = ui.scroll, left = 42 + ch.left, top = headH + ch.top;
-        let toLeft = s.scrollLeft, toTop = s.scrollTop;
-        if (left + Math.min(ch.width, s.clientWidth - 60) > s.scrollLeft + s.clientWidth || left < s.scrollLeft + 42) toLeft = Math.max(0, left - 60);
-        if (top + Math.min(ch.height, s.clientHeight - 40) > s.scrollTop + s.clientHeight || top < s.scrollTop) toTop = Math.max(0, top - 40);
-        if (toLeft !== s.scrollLeft || toTop !== s.scrollTop) s.scrollTo({ top: toTop, left: toLeft });
-      }
+      if (fresh) chartToShow = { left: 42 + ch.left, top: headH + ch.top, width: ch.width, height: ch.height };
     }
-    chartsSeeded = true;
   }
   let chartsSeeded = false; // charts present when the preview opens are not "new"
+  let chartToShow = null;   // a chart Claude just added, scrolled into view once the step's animation is done
+  function showNewChart() {
+    if (!chartToShow) return;
+    const c = chartToShow, s = ui.scroll;
+    chartToShow = null;
+    let toLeft = s.scrollLeft, toTop = s.scrollTop;
+    if (c.left + Math.min(c.width, s.clientWidth - 60) > s.scrollLeft + s.clientWidth || c.left < s.scrollLeft + 42) toLeft = Math.max(0, c.left - 60);
+    if (c.top + Math.min(c.height, s.clientHeight - 40) > s.scrollTop + s.clientHeight || c.top < s.scrollTop) toTop = Math.max(0, c.top - 40);
+    if (toLeft !== s.scrollLeft || toTop !== s.scrollTop) s.scrollTo({ top: toTop, left: toLeft });
+  }
 
   function select(r, c, mark) {
     if (ui.selected) ui.selected.classList.remove("sel");
@@ -728,8 +733,10 @@ td.typed { animation: typed 320ms var(--ease) both; }
       const v = typeof cell === "string" ? cell : cell && (cell.v || cell.bg);
       if (v) { r1 = Math.max(r1, r + 1); c1 = Math.max(c1, c + 1); }
     }));
-    // Only the far edges are known (cells above or left of the view may well have data), so clip those alone.
-    return r1 ? { r0: 0, c0: 0, r1: P.start_row + r1, c1: P.start_col + c1 } : null;
+    // Only the far edges are known (cells above or left of the view may well have data), so clip those alone,
+    // and not one the data reaches: it may carry on past the view (a write out to column AE).
+    const reach = (n, size, start) => n >= size ? Infinity : start + n;
+    return r1 ? { r0: 0, c0: 0, r1: reach(r1, P.rows.length, P.start_row), c1: reach(c1, (P.rows[0] || []).length, P.start_col) } : null;
   }
   const clip = (r, by) => r && by ? { r0: Math.max(r.r0, by.r0), c0: Math.max(r.c0, by.c0), r1: Math.min(r.r1, by.r1), c1: Math.min(r.c1, by.c1) } : r;
   const changed = () => {
@@ -886,6 +893,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     // Anything a recalculation changed outside the animated ranges.
     if (deferred) for (const d of deferred) { P.rows[d.r][d.c] = d.cell; paint(ui.cells[d.r][d.c], d.cell, d.r, d.c); }
     if (pendingCharts !== undefined) { P.charts = pendingCharts; pendingCharts = undefined; renderCharts(); }
+    showNewChart();
     busy--;
     settle();
     setLive();

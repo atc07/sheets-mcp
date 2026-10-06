@@ -18,7 +18,7 @@ const PORT = Number(process.env.PORT ?? 4178);
 const root = new URL("..", import.meta.url).pathname;
 
 const client = new Client({ name: "preview-live", version: "1" }, { capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } } });
-await client.connect(new StdioClientTransport({ command: "node", args: [`${root}dist/index.js`], stderr: "ignore" }));
+await client.connect(new StdioClientTransport({ command: "node", args: [`${root}dist/index.js`], stderr: "inherit" }));
 // Resetting the sheet goes through a separate server process, so it isn't part of the session the preview shows.
 const setup = new Client({ name: "preview-live-setup", version: "1" });
 await setup.connect(new StdioClientTransport({ command: "node", args: [`${root}dist/index.js`], stderr: "ignore" }));

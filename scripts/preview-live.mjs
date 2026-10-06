@@ -276,7 +276,7 @@ const page = (q) => /* html */ `<!doctype html>
   .who { font-size: 13px; color: #73726c; margin: 0 0 8px 2px; } .who code { font: 12.5px ui-monospace, Menlo, monospace; }
   iframe { width: 100%; border: 0; display: block; height: 80px; }
 </style></head><body><div class="col">
-<div class="you">${q.ask || "Can you set this up for me?"}</div>
+<div class="you">${q.ask || "Add a Profit column and a Total row, then chart revenue by month"}</div>
 ${q.clean ? "" : '<div class="who">Widget from Sheets MCP <code>show_range</code></div>'}
 <iframe id="w" sandbox="allow-scripts${q.debug ? " allow-same-origin" : ""}"></iframe>
 </div><script>

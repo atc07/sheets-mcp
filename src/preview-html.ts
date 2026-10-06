@@ -110,7 +110,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .cur { position: absolute; z-index: 6; left: 0; top: 0; width: 0; height: 0; border: 2px solid var(--claude); border-radius: 2px; background: var(--claude-soft); pointer-events: none; opacity: 0;
   transition: transform 450ms var(--ease), width 450ms var(--ease), height 450ms var(--ease), opacity 200ms ease; }
 .cur.on { opacity: 1; }
-.cur.snap { transition: none; }
+.cur.snap { transition: opacity 200ms ease; }
 /* At rest the outline barely tints, so the sheet's own colors read through. */
 .cur.settled { background: rgba(217,119,87,.04); }
 .cur span { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; background: var(--claude); color: #fff; font-size: calc(10.5px / var(--zoom, 1)); font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 4px 0; white-space: nowrap; }
@@ -691,9 +691,14 @@ td.typed { animation: typed 320ms var(--ease) both; }
     const w = ui.wrap.getBoundingClientRect(), ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
     // Rects are measured on screen (zoomed); the outline is placed inside the zoomed grid, so it's unzoomed.
     const x = ra.left - w.left - 1, y = ra.top - w.top - 1;
+    // An outline that wasn't showing (new grid, or after a step with no range) appears where it belongs and
+    // fades in, rather than sliding over from wherever the hidden one was left.
+    const appearing = !ui.cur.classList.contains("on");
+    if (appearing) ui.cur.classList.add("snap");
     Object.assign(ui.cur.style, { transform: "translate(" + x / ZOOM + "px," + y / ZOOM + "px)", width: (rb.right - ra.left + 1) / ZOOM + "px", height: (rb.bottom - ra.top + 1) / ZOOM + "px" });
     ui.cur.classList.toggle("top", v.r0 === 0);
     ui.cur.classList.add("on");
+    if (appearing) { void ui.cur.offsetWidth; ui.cur.classList.remove("snap"); }
     if (scrollTo) {
       // Keep the cursor in view both ways, clear of the header, row numbers and any frozen panes (which stay pinned).
       const s = ui.scroll, fz = ui.frozen;
@@ -792,6 +797,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
     return r && r.r1 > r.r0 && r.c1 > r.c0 ? r : null;
   };
   function settle() {
+    // A step that's still running keeps the outline (and its "Writing…" label): settling on what Claude
+    // already changed would pull the outline back mid-move, then the next update would send it out again.
+    if (running()) return armDone();
     // On a tab the user picked there's no outline and no scrolling: Claude isn't working there right now.
     const v = pinned ? null : visible(changed() || P.highlight);
     ui.cur.classList.remove("scan", "sweep");

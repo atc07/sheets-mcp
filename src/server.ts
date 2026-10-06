@@ -137,14 +137,17 @@ function errorMessage(e: any): string {
  */
 const propsCache = new Map<string, { at: number; props: sheets_v4.Schema$SheetProperties[] }>();
 const PROPS_TTL_MS = 20_000;
+/** Spreadsheet titles, learned for free alongside the tab properties (the preview names other spreadsheets Claude reads). */
+const spreadsheetTitles = new Map<string, string>();
 
 async function getSheetProps(id: string, want?: string) {
   const cached = propsCache.get(id);
   if (cached && Date.now() - cached.at < PROPS_TTL_MS && (want === undefined || cached.props.some((p) => p.title === want))) return cached.props;
   const res = await api().sheets.spreadsheets.get({
     spreadsheetId: id,
-    fields: "sheets.properties",
+    fields: "properties/title,sheets.properties",
   });
+  if (res.data.properties?.title) spreadsheetTitles.set(id, res.data.properties.title);
   const props = (res.data.sheets ?? []).map((s) => s.properties!);
   propsCache.set(id, { at: Date.now(), props });
   return props;
@@ -459,6 +462,16 @@ const previewShownAt = new Map<string, number>();
 const PREVIEW_FRESH_MS = 20 * 60_000;
 /** How far back a newly opened preview catches up: this task's steps, not earlier work in the same sheet. */
 const CATCH_UP_MS = 3 * 60_000;
+/**
+ * A preview also shows what Claude does in other spreadsheets (reading the sources for a copy, say), from where
+ * its catch-up began (`previewFrom`) for as long as Claude keeps at it: a pause longer than TASK_GAP_MS since the
+ * preview last saw a step (`followed`) ends its task, so later work elsewhere doesn't turn up in an old preview.
+ */
+const previewFrom = new Map<string, number>();
+const followed = new Map<string, number>();
+const TASK_GAP_MS = 10 * 60_000;
+/** A preview that polled this recently is open on the user's screen. */
+const PREVIEW_LIVE_MS = 30_000;
 const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "create_spreadsheet", "show_range", "preview_updates"]);
 const READS = new Set(["get_spreadsheet_info", "read_range", "read_ranges"]);
 /** Tools that only look (hosts can run these without asking), and tools that can overwrite or remove what's in a sheet. */
@@ -521,9 +534,9 @@ function endActivity(id: string, e: Activity | undefined, args: any, result: any
   }
 }
 
-/** Activity after `since` (and newer than `after`, a timestamp), with sheet-less ranges placed on the first tab. */
-async function activitySince(id: string, since: number, after = 0): Promise<PreviewEdit[]> {
-  const list = (activityLog.get(id) ?? []).filter((e) => e.seq > since && e.at > after).sort((a, b) => a.seq - b.seq);
+/** Activity after `since` (and between `after` and `before`, timestamps), with sheet-less ranges placed on the first tab. */
+async function activitySince(id: string, since: number, after = 0, before = Infinity): Promise<PreviewEdit[]> {
+  const list = (activityLog.get(id) ?? []).filter((e) => e.seq > since && e.at > after && e.at < before).sort((a, b) => a.seq - b.seq);
   if (!list.length) return [];
   const first = (await getSheetProps(id))[0]?.title ?? undefined;
   return list.map((e) => {
@@ -537,6 +550,40 @@ async function activitySince(id: string, since: number, after = 0): Promise<Prev
     const open = p.startRow === undefined || p.startCol === undefined || p.endRow === undefined || p.endCol === undefined;
     return { ...base, tab, rect, a1: open ? e.range.slice(e.range.lastIndexOf("!") + 1) : toA1(undefined, rect.r0, rect.c0, rect.r1, rect.c1) };
   });
+}
+
+/** Run as the account that last worked with this spreadsheet (it may not be the one the preview's own sheet uses). */
+function inAccountFor<T>(id: string, fn: () => Promise<T>) {
+  const email = accountForSpreadsheet.get(id);
+  return email ? currentAccount.run(email, fn) : fn();
+}
+
+/** Steps in spreadsheets other than `home` that belong to its preview's task, tagged with the spreadsheet they ran in. */
+async function awaySince(home: string, since: number, after: number): Promise<PreviewEdit[]> {
+  const before = (followed.get(home) ?? 0) + TASK_GAP_MS;
+  const out: PreviewEdit[] = [];
+  for (const [id, list] of activityLog) {
+    if (id === home || !list.some((e) => e.seq > since && e.at > after && e.at < before)) continue;
+    try {
+      const steps = await inAccountFor(id, () => activitySince(id, since, after, before));
+      out.push(...steps.map((e) => ({ ...e, spreadsheet: id, spreadsheet_title: spreadsheetTitles.get(id) ?? "" })));
+    } catch {
+      // A spreadsheet the preview can't look up just doesn't show.
+    }
+  }
+  return out.sort((a, b) => a.seq - b.seq);
+}
+
+/** Claude has changed this spreadsheet since its preview opened: the preview stays on it from then on. */
+function wroteTo(id: string) {
+  const from = previewFrom.get(id) ?? 0;
+  return (activityLog.get(id) ?? []).some((e) => e.kind === "edit" && !e.pending && !e.failed && e.at >= from);
+}
+
+/** An open preview of another spreadsheet is following Claude's work, so this one needs no preview of its own. */
+function watchedFromElsewhere(id: string) {
+  const now = Date.now();
+  return [...followed].some(([home, at]) => home !== id && now - at < TASK_GAP_MS && now - (previewShownAt.get(home) ?? 0) < PREVIEW_LIVE_MS);
 }
 
 // ---------- account confirmation ----------
@@ -617,7 +664,8 @@ export function createServer() {
     if (name === "create_spreadsheet" && result?.spreadsheet_id) return rememberSpreadsheet(result.spreadsheet_id, args.title, account);
     if (!sheetId || Date.now() - (rememberedAt.get(sheetId) ?? 0) < 5 * 60_000) return;
     rememberedAt.set(sheetId, Date.now());
-    const known = result?.title ?? result?.preview?.title;
+    // A preview can be showing another spreadsheet Claude was reading.
+    const known = result?.title ?? (result?.preview?.spreadsheet_id === sheetId ? result.preview.title : undefined);
     if (typeof known === "string" && known) return rememberSpreadsheet(sheetId, known, account);
     // Look the title up in the background; the tool's answer doesn't wait for it.
     void canOpen(account, sheetId).then((title) => title && rememberSpreadsheet(sheetId, title, account));
@@ -711,7 +759,7 @@ export function createServer() {
         if (sheetId && !UNLOGGED.has(name)) {
           // Nudge Claude to open the live preview, so the user can watch the rest of the work.
           const shown = previewShownAt.get(sheetId);
-          if (previewsOn && (!shown || Date.now() - shown > PREVIEW_FRESH_MS)) {
+          if (previewsOn && (!shown || Date.now() - shown > PREVIEW_FRESH_MS) && !watchedFromElsewhere(sheetId)) {
             content.push({
               type: "text" as const,
               text: "The user can't see what you're doing in this sheet. Call show_range now (the spreadsheet alone is enough; add `range` for the area you're working in): it catches up on what you've done so far, then shows each read and edit live. Call it once per task.",
@@ -968,12 +1016,17 @@ export function createServer() {
   async function openPreview(id: string, range?: string, highlight?: string) {
     // Steps logged while this builds are left for the widget's first poll, so none is skipped or sent twice.
     const upTo = activitySeq;
-    // Failed steps from before the preview opened aren't worth catching up on.
-    let recent = (await activitySince(id, 0, Math.max(previewShownAt.get(id) ?? 0, Date.now() - CATCH_UP_MS))).filter((e) => e.seq <= upTo && !e.failed);
+    const from = Math.max(previewShownAt.get(id) ?? 0, Date.now() - CATCH_UP_MS);
+    previewFrom.set(id, from);
+    followed.set(id, Date.now());
+    // Failed steps from before the preview opened aren't worth catching up on. Steps in other spreadsheets
+    // (reading the sources, say) are listed too.
+    let recent = [...(await activitySince(id, 0, from)), ...(await awaySince(id, 0, from))].filter((e) => e.seq <= upTo && !e.failed).sort((a, b) => a.seq - b.seq);
     // The widget's own first fetch comes right after show_range; give it the same steps to replay.
     const prior = lastReplay.get(id);
     if (!recent.length && prior && Date.now() - prior.at < 60_000) recent = prior.edits;
     lastReplay.set(id, { at: Date.now(), edits: recent });
+    const own = recent.filter((e) => !e.spreadsheet);
     let sheetName: string | undefined;
     let rect: Rect, outline: Rect | undefined, truncated = false;
     if (range || highlight) {
@@ -982,13 +1035,13 @@ export function createServer() {
       ({ rect, truncated } = win);
       outline = win.highlight;
     } else {
-      sheetName = await lastExistingTab(id, recent);
+      sheetName = await lastExistingTab(id, own);
       rect = { r0: 0, c0: 0, r1: 100, c1: 26 };
     }
     const sheet = await resolveSheet(id, sheetName);
-    const onTab = recent.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
+    const onTab = own.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
     if (!range) rect = fitWindow(rect, onTab);
-    const edited = recent.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
+    const edited = own.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
     const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, {
       highlight: outline,
       keep: union(edited),
@@ -1001,7 +1054,7 @@ export function createServer() {
 
   const showRange = tool(
     "show_range",
-    "Show the user a live view of the sheet right in the conversation, so they can watch you work. Call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing anything. The view stays live: each range you read gets a scanning outline, each edit animates in (Claude's cursor moves there and the cells fill in), and it follows you across tabs. Call it once per task, not after every step. If you already started, call it now: it catches up on what you've done.",
+    "Show the user a live view of the sheet right in the conversation, so they can watch you work. Call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing anything. The view stays live: each range you read gets a scanning outline, each edit animates in (Claude's cursor moves there and the cells fill in), and it follows you across tabs, including into other spreadsheets you read for this task. Call it once per task, not after every step. If you already started, call it now: it catches up on what you've done.",
     {
       spreadsheet,
       range: z.string().optional().describe("A1 range to show first, e.g. \"Sales!A1:F20\". Default: the first tab, or wherever you've been working"),
@@ -1022,43 +1075,65 @@ export function createServer() {
       initial: z.boolean().default(false).describe("Build the whole preview, as show_range does (when the host didn't pass its result through)"),
       peek: z.boolean().default(false).describe("Only build a preview of `range` (the user picked a tab in the preview); no activity is replayed"),
       stay: z.boolean().default(false).describe("The user picked the tab in `range`: keep building that tab rather than following Claude"),
+      showing: z.string().optional().describe("The spreadsheet `range` is in, when the preview is showing another one than its own"),
     },
-    async ({ spreadsheet, range, highlight, since, initial, peek, stay }) => {
+    async ({ spreadsheet, range, highlight, since, initial, peek, stay, showing }) => {
       const id = spreadsheetIdFrom(spreadsheet);
+      const shown = showing ? spreadsheetIdFrom(showing) : id;
       if (peek && range) {
         const win = previewWindow(range, undefined);
-        const sheet = await resolveSheet(id, win.sheet);
-        const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, win.rect, { truncated: win.truncated, tabs: await previewTabs(id) });
+        const preview = await inAccountFor(shown, async () => {
+          const sheet = await resolveSheet(shown, win.sheet);
+          return buildPreview(api().sheets, shown, { title: sheet.title!, sheetId: sheet.sheetId! }, win.rect, { truncated: win.truncated, tabs: await previewTabs(shown) });
+        });
         previewShownAt.set(id, Date.now());
         return { preview, seq: Math.max(since, activitySeq) };
       }
       if (initial || !range) return openPreview(id, range, highlight);
       previewShownAt.set(id, Date.now());
       const upTo = activitySeq;
-      const edits = (await activitySince(id, since)).filter((e) => e.seq <= upTo);
+      const own = await activitySince(id, since);
+      const away = await awaySince(id, since, previewFrom.get(id) ?? Date.now() - CATCH_UP_MS);
+      const edits = [...own, ...away].filter((e) => e.seq <= upTo).sort((a, b) => a.seq - b.seq);
       const seq = Math.max(since, upTo);
+      if (edits.length) followed.set(id, Date.now());
+      // Where the grid goes. While Claude is only reading, it follows Claude into other spreadsheets too; once Claude
+      // has written to this one, only steps here move it (a copy job would otherwise flip back and forth on every
+      // step), and reads elsewhere just show in the steps list. A tab the user picked stays put.
+      const bookOf = (e: PreviewEdit) => e.spreadsheet ?? id;
+      let target = shown;
+      if (!stay) {
+        const followable = wroteTo(id) ? own : edits;
+        const last = [...followable].reverse().find((e) => e.seq <= upTo && !e.pending && !e.failed);
+        if (last) target = bookOf(last);
+      }
+      const mine = edits.filter((e) => bookOf(e) === target);
       // Steps that only just started haven't changed the sheet yet: send them without a rebuild. When the
       // minute's reads are mostly used, rebuild only every few seconds (the steps still show) and catch up after.
       const { sheet: winTab, rect: win } = toRect(range);
       // A tab the user is looking at only needs a rebuild when Claude changed something on it.
-      const changed = edits.some((e) => !e.pending && (!stay || e.tab === winTab)) || staleFor.has(id);
+      const changed = target !== shown || mine.some((e) => !e.pending && (!stay || e.tab === winTab)) || staleFor.has(target);
       if (!changed) return { edits, seq };
       const used = readsLastMinute();
-      if (used > PREVIEW_READ_BUDGET && (used > PREVIEW_READ_CEILING || Date.now() - (lastRebuild.get(id) ?? 0) < PREVIEW_SLOW_MS)) {
-        if (!staleFor.has(id)) console.error(`Sheet preview: holding the rebuild, ${used} reads in the last minute`);
-        staleFor.add(id);
+      if (used > PREVIEW_READ_BUDGET && (used > PREVIEW_READ_CEILING || Date.now() - (lastRebuild.get(target) ?? 0) < PREVIEW_SLOW_MS)) {
+        if (!staleFor.has(target)) console.error(`Sheet preview: holding the rebuild, ${used} reads in the last minute`);
+        staleFor.add(target);
         return { edits, seq };
       }
-      staleFor.delete(id);
-      lastRebuild.set(id, Date.now());
-      // Follow Claude to whichever tab it touched last (one that exists: a failed step may name a tab that doesn't).
-      const lastTab = stay ? winTab : (await lastExistingTab(id, edits)) ?? winTab;
-      const sheet = await resolveSheet(id, lastTab);
-      const onTab = edits.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
-      const base = sheet.title === winTab ? win : { r0: 0, c0: 0, r1: 100, c1: 26 };
-      const rect = fitWindow(base, onTab);
-      const edited = edits.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
-      const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, { keep: union(edited), tabs: await previewTabs(id) });
+      staleFor.delete(target);
+      lastRebuild.set(target, Date.now());
+      const preview = await inAccountFor(target, async () => {
+        // Follow Claude to whichever tab it touched last (one that exists: a failed step may name a tab that doesn't).
+        const lastTab = stay
+          ? winTab
+          : ((await lastExistingTab(target, mine)) ?? (target === shown ? winTab : await lastExistingTab(target, activityLog.get(target) ?? [])));
+        const sheet = await resolveSheet(target, lastTab);
+        const onTab = mine.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
+        const base = target === shown && sheet.title === winTab ? win : { r0: 0, c0: 0, r1: 100, c1: 26 };
+        const rect = fitWindow(base, onTab);
+        const edited = mine.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
+        return buildPreview(api().sheets, target, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, { keep: union(edited), tabs: await previewTabs(target) });
+      });
       return { edits, seq, preview };
     },
     { preview: "app" },

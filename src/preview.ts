@@ -51,6 +51,9 @@ export interface PreviewEdit {
   rect?: Rect;
   pending?: true;
   failed?: true;
+  /** For a step in another spreadsheet than the preview's own (reading a source, say): that spreadsheet's ID and title. */
+  spreadsheet?: string;
+  spreadsheet_title?: string;
 }
 
 /**

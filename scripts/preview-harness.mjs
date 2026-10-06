@@ -2,7 +2,9 @@
 // It serves the built widget in an iframe, answers its ui/initialize, hands it a sample sheet, then plays
 // a scripted session through preview_updates: steps start (pending) and finish, cells change, a read
 // scans, formatting lands, a fill runs, Claude moves to another tab, and one step fails.
-// Usage: npm run build && node scripts/preview-harness.mjs   (then open http://localhost:4177)
+// The "copy" session (?s=copy) has Claude read two other spreadsheets, then copy into an empty new one: the
+// preview follows the reads into the sources, then stays on the new sheet once Claude writes to it.
+// Usage: npm run build && node scripts/preview-harness.mjs   (then open http://localhost:4177, or /?s=copy)
 import { createServer } from "node:http";
 import { PREVIEW_HTML } from "../dist/preview-html.js";
 
@@ -27,6 +29,7 @@ const PAGE = /* html */ `<!doctype html>
   <button id="replay">Replay session</button>
   <button id="theme">Toggle dark</button>
   <label><input type="checkbox" id="burst"> Burst (many steps at once)</label>
+  <label><input type="checkbox" id="copy"> Copy from other sheets</label>
   <span id="status"></span>
 </div>
 <iframe id="w" src="/widget"></iframe>
@@ -35,7 +38,8 @@ const PAGE = /* html */ `<!doctype html>
 (() => {
   const frame = document.getElementById("w"), log = document.getElementById("log"), status = document.getElementById("status");
   const say = (s) => { log.textContent = new Date().toISOString().slice(11, 23) + "  " + s + "\\n" + log.textContent; };
-  let dark = false, burst = false;
+  let dark = false, burst = false, copy = new URLSearchParams(location.search).get("s") === "copy";
+  document.getElementById("copy").checked = copy;
 
   // ----- a sample sheet, in the compact wire format (plain cells are bare strings) -----
   const money = (n) => ({ v: (n < 0 ? "(" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("en-US") + (n < 0 ? ")" : ""), n: true, ...(n < 0 && { fg: "#c00000" }) });
@@ -68,14 +72,22 @@ const PAGE = /* html */ `<!doctype html>
     return { spreadsheet_id: "demo", title: "Compass Model V1", tab: "Inputs", url: "https://docs.google.com/", window: "Inputs!A1:D100", start_row: 0, start_col: 0, col_widths: [16, 260, 100, 300], row_heights: rows.map(() => 21), rows, frozen_rows: 2, tabs: TABS };
   }
   const clone = (x) => JSON.parse(JSON.stringify(x));
+  // For the copy session: the new, empty spreadsheet and the two it copies from.
+  const HOME = "Combined Partnerships P&L 2026 V1";
+  function blank(tab = "Sheet1", tabs = [{ title: "Sheet1" }]) {
+    const rows = Array.from({ length: 12 }, () => Array(8).fill(""));
+    return { spreadsheet_id: "demo", title: HOME, tab, url: "https://docs.google.com/", window: "'" + tab + "'!A1:H100", start_row: 0, start_col: 0, col_widths: Array(8).fill(100), row_heights: rows.map(() => 21), rows, tabs };
+  }
+  const V17 = { id: "v17", title: "P&L V17 Compass Merger" }, COMPASS = { id: "compass", title: "Compass Model V1" };
+  const source = (id) => (id === "v17" ? { ...sheet(), spreadsheet_id: "v17", title: V17.title } : { ...inputs(), spreadsheet_id: "compass", title: COMPASS.title, tabs: [{ title: "Inputs" }] });
 
   // ----- the scripted session -----
   let state, events, nextSeq, ids, timers = [];
   const rect = (r0, c0, r1, c1) => ({ r0, c0, r1, c1 });
   const a1 = (rc) => { const col = (i) => String.fromCharCode(65 + i); return col(rc.c0) + (rc.r0 + 1) + ":" + col(rc.c1 - 1) + rc.r1; };
-  function step(tool, kind, tab, rc, change) {
+  function step(tool, kind, tab, rc, change, book) {
     let id; // the start's seq, like the server's activity log
-    const base = () => ({ id, tool, kind, tab, ...(rc && { rect: rc, a1: a1(rc) }) });
+    const base = () => ({ id, tool, kind, tab, ...(rc && { rect: rc, a1: a1(rc) }), ...(book && { spreadsheet: book.id, spreadsheet_title: book.title }) });
     return {
       start: () => { id = ++nextSeq; events.push({ ...base(), seq: id, pending: true }); },
       finish: () => { if (change) change(); events.push({ ...base(), seq: ++nextSeq, changed: !!change }); },
@@ -85,10 +97,30 @@ const PAGE = /* html */ `<!doctype html>
   function reset() {
     for (const t of timers) clearTimeout(t);
     timers = [];
-    state = { current: sheet(), seq: 0 };
+    state = { current: copy ? blank() : sheet(), seq: 0 };
     events = [];
     nextSeq = 0;
     const at = (ms, fn) => timers.push(setTimeout(fn, burst ? ms / 4 : ms));
+    if (copy) {
+      const PO = [{ title: "Sheet1" }, { title: "Profit Options" }];
+      const c1 = step("get_spreadsheet_info", "read", "Profit Options", null, null, V17);
+      const c2 = step("read_range", "read", "Profit Options", rect(0, 0, 12, 10), null, V17);
+      const c3 = step("get_spreadsheet_info", "read", "Inputs", null, null, COMPASS);
+      const c4 = step("read_range", "read", "Inputs", rect(0, 0, 7, 4), null, COMPASS);
+      const c5 = step("manage_tab", "edit", "Profit Options", null, () => { state.current = blank("Profit Options", PO); });
+      const c6 = step("write_range", "edit", "Profit Options", rect(0, 0, 12, 10), () => { state.current = { ...sheet(), spreadsheet_id: "demo", title: HOME, tabs: PO }; });
+      const c7 = step("read_range", "read", "Inputs", rect(1, 1, 7, 4), null, COMPASS);
+      at(900, c1.start); at(1700, c1.finish);
+      at(2300, c2.start); at(3500, c2.finish);
+      at(4300, c3.start); at(5000, c3.finish);
+      at(5600, c4.start); at(6800, c4.finish);
+      at(7800, c5.start); at(8600, c5.finish);
+      at(9400, c6.start); at(11200, c6.finish);
+      at(12200, c7.start); at(13200, c7.finish);
+      at(13400, () => { status.textContent = "Copy session played; the card folds after it goes quiet."; });
+      status.textContent = "Playing the copy session…";
+      return;
+    }
     const s1 = step("write_range", "edit", "Profit Options", rect(3, 7, 7, 9), () => { for (let r = 3; r < 7; r++) { state.current.rows[r][7] = money(900000 + r * 137000); state.current.rows[r][8] = money(950000 + r * 141000); } });
     const s2 = step("read_range", "read", "Profit Options", rect(2, 1, 11, 10));
     const s3 = step("format_range", "edit", "Profit Options", rect(11, 2, 12, 9), () => { for (let c = 2; c < 9; c++) { const cell = state.current.rows[11][c]; state.current.rows[11][c] = typeof cell === "string" ? { v: cell, bg: "#e8f0fe", b: true } : { ...cell, bg: "#e8f0fe", b: true }; } });
@@ -116,7 +148,7 @@ const PAGE = /* html */ `<!doctype html>
       send({ id: m.id, result: { protocolVersion: "2026-01-26", hostContext: { theme: dark ? "dark" : "light" }, hostCapabilities: { serverTools: {} } } });
     } else if (m.method === "ui/notifications/initialized") {
       reset();
-      send({ method: "ui/notifications/tool-input", params: { arguments: { spreadsheet: "demo", range: "'Profit Options'!A1:J30" } } });
+      send({ method: "ui/notifications/tool-input", params: { arguments: { spreadsheet: "demo", ...(!copy && { range: "'Profit Options'!A1:J30" }) } } });
       send({ method: "ui/notifications/tool-result", params: { structuredContent: { preview: clone(state.current), edits: [], seq: 0, account: "demo@example.com" } } });
       say("tool-result sent (preview " + JSON.stringify(state.current).length + " chars)");
     } else if (m.method === "ui/notifications/size-changed") {
@@ -127,6 +159,7 @@ const PAGE = /* html */ `<!doctype html>
     } else if (m.method === "tools/call") {
       const a = m.params.arguments || {};
       if (m.params.name !== "preview_updates") return send({ id: m.id, error: { code: -32601, message: "Unknown tool" } });
+      if (copy) return send({ id: m.id, result: { structuredContent: copyUpdate(a) } });
       if (a.peek) {
         const tab = /^'?([^'!]+)'?!/.exec(a.range || "")?.[1];
         const p = tab === "Inputs" ? inputs() : tab === "Profit Options" ? clone(state.current.tab === "Profit Options" ? state.current : sheet()) : { ...inputs(), tab, rows: [[{ v: tab + " (sample)", b: true }, "", "", ""]], frozen_rows: 0 };
@@ -142,6 +175,31 @@ const PAGE = /* html */ `<!doctype html>
     }
   });
 
+  // preview_updates for the copy session, following Claude the way the server does: into another spreadsheet
+  // while Claude has only been reading, and back to (then staying on) the new one once Claude writes to it.
+  function copyUpdate(a) {
+    const bookOf = (e) => e.spreadsheet || "demo";
+    const preview = (id) => clone(id === "demo" ? state.current : source(id));
+    const shown = a.showing || "demo";
+    if (a.peek) {
+      const tab = /^'?([^'!]+)'?!/.exec(a.range || "")?.[1];
+      const p = preview(shown);
+      say("peek " + shown + " " + tab);
+      return { preview: p.tab === tab || shown !== "demo" ? p : blank(tab, p.tabs), seq: nextSeq };
+    }
+    const edits = events.filter((x) => x.seq > (a.since || 0)).map(({ changed, ...x }) => x);
+    let target = shown;
+    if (!a.stay) {
+      const wrote = events.some((e) => !e.spreadsheet && e.kind === "edit" && !e.pending && !e.failed);
+      const last = [...edits].reverse().find((e) => !e.pending && !e.failed && (!wrote || !e.spreadsheet));
+      if (last) target = bookOf(last);
+    }
+    const changed = target !== shown || edits.some((e) => !e.pending && bookOf(e) === target);
+    if (edits.length) say("preview_updates since " + a.since + " → " + edits.map((x) => (x.spreadsheet ? x.spreadsheet + ":" : "") + x.tool + (x.pending ? " (started)" : x.failed ? " (failed)" : " (done)")).join(", ") + (changed ? " ⇒ show " + target : ""));
+    return { edits, seq: nextSeq, ...(changed && { preview: preview(target) }) };
+  }
+
+  document.getElementById("copy").addEventListener("change", (e) => { copy = e.target.checked; frame.src = "/widget?" + Date.now(); });
   document.getElementById("replay").addEventListener("click", () => { frame.src = "/widget?" + Date.now(); });
   document.getElementById("theme").addEventListener("click", () => { dark = !dark; document.body.classList.toggle("dark", dark); send({ method: "ui/notifications/host-context-changed", params: { theme: dark ? "dark" : "light" } }); });
   document.getElementById("burst").addEventListener("change", (e) => { burst = e.target.checked; });

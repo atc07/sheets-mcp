@@ -32,6 +32,18 @@ body { font: 13px/1.4 var(--font); color: var(--fg); padding: 2px; }
 .bar { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; box-shadow: inset 0 -1px 0 var(--grid); }
 .bar > svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
 .bar .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Spreadsheets Claude has been in, when there's more than one: click one to look at it, like the tab strip. */
+.books { position: relative; display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; margin-left: -4px; }
+.books::-webkit-scrollbar { display: none; }
+/* They shrink to fit, but the one shown and the one Claude is in keep enough of their names to read. */
+.bk { flex: 0 1 auto; min-width: 56px; max-width: 240px; font: 500 12.5px/1 var(--font); color: var(--muted); background: none; border: 0; border-radius: 7px; padding: 6px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk:hover { color: var(--fg); background: rgba(128,128,128,.12); }
+.bk.on, .bk.ai { min-width: 110px; }
+.bk.on { color: var(--fg); font-weight: 600; background: var(--surface-2); }
+.bk.busy { opacity: .55; }
+.bk .aid { display: none; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--claude); vertical-align: 1px; animation: aipulse 1.4s ease-in-out infinite; }
+.bk.ai .aid { display: inline-block; }
+.bk:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .bar .tab { flex: none; font-size: 12px; color: var(--muted); background: var(--surface-2); border-radius: 6px; padding: 2px 7px; }
 .bar .sp { flex: 1; }
 .live { flex: none; display: none; align-items: center; gap: 6px; font: 500 11.5px/1 var(--font); color: var(--muted); background: none; border: 0; padding: 4px 6px; border-radius: 6px; }
@@ -154,6 +166,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .srow b { font: 600 12px/1.2 var(--mono); color: var(--fg); }
 .srow code { font: 11.5px/1.2 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srow.read b { font-weight: 500; color: var(--muted); }
+.srow code .in { color: var(--fg); }
 .srow.run { background: var(--claude-soft); box-shadow: inset 0 0 0 1px var(--claude); }
 .srow.fail { opacity: .7; }
 .srow.fail b { text-decoration: line-through; text-decoration-color: var(--faint); }
@@ -175,6 +188,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 @media (prefers-reduced-motion: reduce) {
   .cur, .scroll, .body { transition: none; scroll-behavior: auto; }
   .skel .row > i { animation: none; }
+  .bk .aid, .tb .aid,
   td.typed, td.flash::after, .live i, .cur .band::before, .gridwrap.enter, .chart *, .srow { animation: none !important; }
 }
 </style>
@@ -221,10 +235,24 @@ td.typed { animation: typed 320ms var(--ease) both; }
   let toolArgs = {};     // show_range's arguments, from ui/notifications/tool-input
   let backlog = 0;       // batches waiting to animate, so a pile-up plays faster
   let switching = null;  // tab the user asked for, while it loads
+  let home;              // the spreadsheet show_range opened: { id, title }
+  // Spreadsheets Claude has been in during this task, in order (the preview's own first): id -> { id, title, tab, rect }.
+  // While Claude only reads, the preview follows it into the others; once it writes to its own, the grid stays there.
+  const books = new Map();
 
   // Plain text cells travel as bare strings; give every cell the same shape here.
   const inflate = (p) => { if (p && p.rows) p.rows = p.rows.map((row) => row.map((c) => (typeof c === "string" ? { v: c } : c))); return p; };
   const stepId = (e) => (e.id != null ? e.id : e.seq);
+  const bookOf = (e) => e.spreadsheet || home.id;
+  // A step is on screen when it's in the spreadsheet and tab the grid shows.
+  const isOn = (e, p) => !!p && bookOf(e) === p.spreadsheet_id && e.tab === p.tab;
+  function noteBook(id, title, tab, rect) {
+    const b = books.get(id) || { id, title: "" };
+    if (title) b.title = title;
+    if (tab) { if (b.tab !== tab) b.rect = null; b.tab = tab; }
+    if (rect) b.rect = rect;
+    books.set(id, b);
+  }
   const running = () => stepLog.some((r) => r.state === "run");
 
   function applyContext(ctx) {
@@ -301,7 +329,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
   const ZOOM = 0.8;
   const ERR = /^#(DIV[/]0!|N[/]A|REF!|VALUE!|NAME[?]|NUM!|NULL!|ERROR!|SPILL!|CALC!)$/;
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const sameShape = (a, b) => a && b && a.tab === b.tab && a.start_row === b.start_row && a.start_col === b.start_col && a.rows.length === b.rows.length &&
+  const sameShape = (a, b) => a && b && a.spreadsheet_id === b.spreadsheet_id && a.tab === b.tab && a.start_row === b.start_row && a.start_col === b.start_col && a.rows.length === b.rows.length &&
     same(a.col_widths, b.col_widths) && same(a.row_heights, b.row_heights) && same(a.merges, b.merges) && a.hide_gridlines === b.hide_gridlines &&
     a.frozen_rows === b.frozen_rows && a.frozen_cols === b.frozen_cols && same(a.tabs, b.tabs) && same(a.filter, b.filter);
 
@@ -319,7 +347,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
     open.append("Open in Sheets");
     open.addEventListener("click", () => request("ui/open-link", { url: P.url }).catch(() => window.open(P.url, "_blank", "noopener")));
     const hasStrip = p.tabs && p.tabs.some((t) => !t.hidden);
-    bar.append(el("span", "t", p.title), ...(hasStrip ? [] : [el("span", "tab", p.tab)]), el("span", "sp"), live, open);
+    noteBook(p.spreadsheet_id, p.title, p.tab);
+    const title = el("span", "t", p.title);
+    bar.append(title, ...(hasStrip ? [] : [el("span", "tab", p.tab)]), el("span", "sp"), live, open);
 
     const fbar = el("div", "fbar");
     const ref = el("div", "ref"), val = el("div", "val");
@@ -409,40 +439,66 @@ td.typed { animation: typed 320ms var(--ease) both; }
       b.type = "button";
       b.dataset.tab = t.title;
       b.append(el("i", "aid"), el("span", "", t.title));
-      b.addEventListener("click", () => (aiAt && t.title === aiAt.tab ? focusClaude() : switchTab(t.title)));
+      b.addEventListener("click", () => (aiAt && aiAt.book === p.spreadsheet_id && t.title === aiAt.tab ? focusClaude() : switchTab(t.title)));
       tabs.append(b);
     }
     inner.append(fbar, scroll, ...(hasStrip ? [tabs] : []), steps);
     fold.append(inner);
     card.classList.toggle("done", done);
     card.append(bar, fold, foot);
-    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, frozen, steps, tabs, selected: null };
+    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, frozen, steps, tabs, title, books: null, bookCount: 0, selected: null };
+    renderBooks();
     renderSteps();
     markClaudeTab();
     renderCharts();
   }
 
+  // With more than one spreadsheet, the title becomes a row of them (the preview's own first).
+  function renderBooks() {
+    if (!ui || !ui.title || books.size < 2 || ui.bookCount === books.size) return;
+    const row = el("div", "books");
+    for (const b of books.values()) {
+      const btn = el("button", "bk" + (b.id === P.spreadsheet_id ? " on" : "") + (b.id === switchingBook ? " busy" : ""));
+      btn.type = "button";
+      btn.dataset.book = b.id;
+      btn.append(el("i", "aid"), b.title || "Spreadsheet");
+      btn.addEventListener("click", () => {
+        const at = books.get(b.id);
+        if (aiAt && b.id === aiAt.book) focusClaude();
+        else if (at.tab) switchTab(at.tab, true, at.rect, b.id);
+      });
+      row.append(btn);
+    }
+    (ui.books || ui.title).replaceWith(row);
+    ui.books = row;
+    ui.bookCount = books.size;
+  }
+
   // The user picked a tab in the strip: fetch that tab as it is now and show it. Claude's next edit
   // brings the view back to wherever Claude is working.
   // A tab the user picks stays shown (Claude's dot marks where it's working) until they click Claude's tab.
+  // The same goes for another spreadsheet picked in the header. pinned: { book, tab }.
   let pinned = null, rushing = false; // rushing: a tab switch is waiting, so finish the animation quickly
-  function switchTab(title, byUser = true, around = null) {
-    if (!canPoll || !P || switching || title === P.tab) return Promise.resolve();
+  let switchingBook = null;
+  function switchTab(title, byUser = true, around = null, book = P && P.spreadsheet_id) {
+    if (!canPoll || !P || switching || (title === P.tab && book === P.spreadsheet_id)) return Promise.resolve();
     switching = title;
-    pinned = byUser ? title : null;
-    for (const b of ui.tabs.children) b.classList.toggle("busy", b.dataset.tab === title);
+    switchingBook = book !== P.spreadsheet_id ? book : null;
+    pinned = byUser ? { book, tab: title } : null;
+    if (switchingBook) { if (ui.books) for (const b of ui.books.children) b.classList.toggle("busy", b.dataset.book === book); }
+    else for (const b of ui.tabs.children) b.classList.toggle("busy", b.dataset.tab === title);
     rushing = true;
     // In the queue, so an animation still typing into the old tab finishes before the grid is replaced.
-    queue = queue.then(() => showTab(title, around)).catch((err) => console.error("Sheet preview:", err));
+    queue = queue.then(() => showTab(title, around, book)).catch((err) => console.error("Sheet preview:", err));
     return queue;
   }
-  async function showTab(title, around) {
+  async function showTab(title, around, book) {
     rushing = false;
     const quoted = /^[A-Za-z_][A-Za-z0-9_]*$/.test(title) ? title : "'" + title.replace(/'/g, "''") + "'";
     try {
-      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: quoted + "!" + windowAround(around), peek: true, since: seq, ...(account && { account }) } });
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(book !== home.id && { showing: book }), range: quoted + "!" + windowAround(around), peek: true, since: seq, ...(account && { account }) } });
       const s = r && !r.isError && r.structuredContent;
-      switching = null;
+      switching = switchingBook = null;
       if (s && s.preview) {
         keepOpen = true;
         if (done) setDone(false);
@@ -451,8 +507,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
         settle();
       }
     } catch {}
-    switching = null;
+    switching = switchingBook = null;
     if (ui && ui.tabs) for (const b of ui.tabs.children) b.classList.remove("busy");
+    if (ui && ui.books) for (const b of ui.books.children) b.classList.remove("busy");
   }
 
   // ---------- charts ----------
@@ -637,15 +694,16 @@ td.typed { animation: typed 320ms var(--ease) both; }
   const seenCharts = new Set();
   function renderCharts() {
     ui.charts.textContent = "";
-    const seeded = chartsSeeded;
+    const seeded = chartsSeeded && chartsBook === P.spreadsheet_id;
     chartsSeeded = true;
+    chartsBook = P.spreadsheet_id;
     if (!P.charts) return;
     const headH = ui.head.offsetHeight;
     for (const ch of P.charts) {
       const box = el("div", "chart");
       box.style.cssText = "left:" + (42 + ch.left) + "px;top:" + (headH + ch.top) + "px;width:" + ch.width + "px;height:" + ch.height + "px";
       // A chart Claude changed (type, title, stacking, place or size) counts as new: it redraws and comes into view.
-      const key = [ch.id, ch.type, ch.title, ch.stacked, ch.row, ch.col, ch.width, ch.height].join(":");
+      const key = [P.spreadsheet_id, ch.id, ch.type, ch.title, ch.stacked, ch.row, ch.col, ch.width, ch.height].join(":");
       const fresh = seeded && !seenCharts.has(key);
       if (!seenCharts.has(key)) box.classList.add("anim");
       seenCharts.add(key);
@@ -655,7 +713,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
       if (fresh) chartToShow = { left: 42 + ch.left, top: headH + ch.top, width: ch.width, height: ch.height };
     }
   }
-  let chartsSeeded = false; // charts present when the preview opens are not "new"
+  let chartsSeeded = false; // charts present when the preview opens (or moves to another spreadsheet) are not "new"
+  let chartsBook = null;
   let chartToShow = null;   // a chart Claude just added, scrolled into view once the step's animation is done
   function showNewChart() {
     if (!chartToShow) return;
@@ -719,10 +778,22 @@ td.typed { animation: typed 320ms var(--ease) both; }
     update_chart: "Updating a chart", delete_chart: "Removing a chart", add_pivot_table: "Adding a pivot table", freeze: "Freezing", resize_columns: "Resizing", merge_cells: "Merging", manage_tab: "Updating tabs",
     insert_rows_or_columns: "Inserting", delete_rows_or_columns: "Deleting", undo_last: "Undoing", batch_update: "Updating" };
   const where = (e) => (e.a1 ? (e.tab ? e.tab + "!" : "") + e.a1 : e.tab || "");
+  // The steps list names the spreadsheet for steps in another one than the preview's own.
+  function whereEl(code, e) {
+    code.textContent = "";
+    if (e.spreadsheet) code.append(el("span", "in", e.spreadsheet_title || "Another spreadsheet"), " › ");
+    code.append(where(e));
+    code.title = (e.spreadsheet ? (e.spreadsheet_title || "Another spreadsheet") + " › " : "") + where(e);
+  }
   // Each step has one row in the steps list, keyed by id: it appears when the tool starts and
   // settles when it finishes. The footer just says what Claude is doing.
   function showStep(state, e) {
-    if (e.tab && state !== "fail") aiAt = { tab: e.tab, rect: e.rect || (aiAt && aiAt.tab === e.tab ? aiAt.rect : null) };
+    if (e.tab && state !== "fail") {
+      const book = bookOf(e), same = aiAt && aiAt.book === book && aiAt.tab === e.tab;
+      aiAt = { book, tab: e.tab, rect: e.rect || (same ? aiAt.rect : null) };
+      noteBook(book, e.spreadsheet_title, e.tab, aiAt.rect);
+      renderBooks();
+    }
     const row = stepLog.find((x) => stepId(x.e) === stepId(e));
     if (row) { row.state = state; row.e = e; row.at = Date.now(); }
     else stepLog.push({ e, state, at: Date.now() });
@@ -754,7 +825,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
       } else row.style.animation = "none"; // already on screen: don't slide in again
       row.className = "srow " + state + (e.kind === "read" ? " read" : "");
       row.children[1].textContent = e.tool;
-      row.children[2].textContent = where(e);
+      whereEl(row.children[2], e);
       row.children[3].className = "st " + state;
       kids.push(row);
     }
@@ -765,10 +836,12 @@ td.typed { animation: typed 320ms var(--ease) both; }
     ui.step.textContent = "";
     const edits = history.filter((e) => e.kind !== "read"), reads = history.length - edits.length;
     const ch = changed();
+    const away = P.spreadsheet_id !== home.id;
     if (ch) ui.step.append(el("span", "who", "Claude"), " changed " + label(ch));
-    else if (edits.some((e) => e.tab === P.tab)) ui.step.append(el("span", "who", "Claude"), " updated " + P.tab);
+    else if (edits.some((e) => isOn(e, P))) ui.step.append(el("span", "who", "Claude"), " updated " + P.tab);
     else if (P.highlight) ui.step.append(el("span", "who", "Claude"), " changed " + P.highlight.a1);
-    else if (reads) ui.step.append(el("span", "who", "Claude"), " is looking through the sheet");
+    else if (away && history.some((e) => bookOf(e) === P.spreadsheet_id)) ui.step.append(el("span", "who", "Claude"), (done ? " read " : " is reading ") + P.title);
+    else if (reads) ui.step.append(el("span", "who", "Claude"), books.size > 1 ? " is looking through the sheets" : " is looking through the sheet");
     else ui.step.textContent = canPoll ? "Watching Claude work…" : P.tab;
     const n = (k, w) => k + " " + w + (k === 1 ? "" : "s");
     ui.count.textContent = history.length ? [edits.length && n(edits.length, "edit"), reads && n(reads, "read")].filter(Boolean).join(" · ") : (P.truncated ? "Showing part of the range" : "");
@@ -792,7 +865,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
   }
   const clip = (r, by) => r && by ? { r0: Math.max(r.r0, by.r0), c0: Math.max(r.c0, by.c0), r1: Math.min(r.r1, by.r1), c1: Math.min(r.c1, by.c1) } : r;
   const changed = () => {
-    const mine = history.filter((e) => e.kind !== "read" && e.tab === P.tab && e.rect).map((e) => e.rect);
+    const mine = history.filter((e) => e.kind !== "read" && isOn(e, P) && e.rect).map((e) => e.rect);
     const r = clip(union(mine), usedRect());
     return r && r.r1 > r.r0 && r.c1 > r.c0 ? r : null;
   };
@@ -840,8 +913,19 @@ td.typed { animation: typed 320ms var(--ease) both; }
   let aiAt = null;
   function markClaudeTab() {
     if (!ui || !ui.tabs) return;
+    if (ui.books) for (const b of ui.books.children) {
+      const here = !done && !!aiAt && b.dataset.book === aiAt.book;
+      b.classList.toggle("ai", here);
+      b.title = (books.get(b.dataset.book) || {}).title + (here ? ": Claude is working here, click to see where" : b.classList.contains("on") ? ": shown now" : "");
+      // With many spreadsheets the row scrolls: keep the one Claude is in within it.
+      if (here) {
+        const row = ui.books;
+        if (b.offsetLeft < row.scrollLeft) row.scrollLeft = b.offsetLeft;
+        else if (b.offsetLeft + b.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = b.offsetLeft + b.offsetWidth - row.clientWidth;
+      }
+    }
     for (const b of ui.tabs.children) {
-      const here = !done && !!aiAt && b.dataset.tab === aiAt.tab;
+      const here = !done && !!aiAt && aiAt.book === P.spreadsheet_id && b.dataset.tab === aiAt.tab;
       b.classList.toggle("ai", here);
       b.title = here ? "Claude is working here: click to see where" : b.classList.contains("on") ? "Shown now" : "Show " + b.dataset.tab;
     }
@@ -855,9 +939,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
     const at = aiAt;
     if (!at || !P) return;
     pinned = null;
-    const back = P.tab !== at.tab;
-    if (back) await switchTab(at.tab, false, at.rect);
-    if (!P || P.tab !== at.tab) return;
+    const back = P.tab !== at.tab || P.spreadsheet_id !== at.book;
+    if (back) await switchTab(at.tab, false, at.rect, at.book);
+    if (!P || P.tab !== at.tab || P.spreadsheet_id !== at.book) return;
     if (done) { keepOpen = true; setDone(false); }
     const v = visible(at.rect);
     if (!v) return;
@@ -874,7 +958,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
   // Animate edits one after another. With a new preview, cells inside each edit's range change
   // as the cursor reaches them; everything else updates straight away.
   function enqueue(edits, next) {
-    if (pinned && next && next.tab !== pinned) next = null; // the user is looking at another tab
+    if (pinned && next && (next.spreadsheet_id !== pinned.book || next.tab !== pinned.tab)) next = null; // the user is looking at another tab
     backlog++;
     clearTimeout(doneTimer);
     if (done) setDone(false);
@@ -894,7 +978,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
       deferred = [];
       next.rows.forEach((row, r) => row.forEach((cell, c) => {
         if (same(cell, P.rows[r][c])) return;
-        const inEdit = finished.some((e) => e.tab === next.tab && e.rect && r + next.start_row >= e.rect.r0 && r + next.start_row < e.rect.r1 && c + next.start_col >= e.rect.c0 && c + next.start_col < e.rect.c1);
+        const inEdit = finished.some((e) => isOn(e, next) && e.rect && r + next.start_row >= e.rect.r0 && r + next.start_row < e.rect.r1 && c + next.start_col >= e.rect.c0 && c + next.start_col < e.rect.c1);
         if (inEdit) deferred.push({ r, c, cell });
         else paint(ui.cells[r][c], cell, r, c);
       }));
@@ -903,14 +987,14 @@ td.typed { animation: typed 320ms var(--ease) both; }
       pendingCharts = next.charts;
       next.rows.forEach((row, r) => row.forEach((cell, c) => { if (!deferred.some((d) => d.r === r && d.c === c)) P.rows[r][c] = cell; }));
     } else if (next) {
-      const switching = !P || next.tab !== P.tab;
+      const switching = !P || next.tab !== P.tab || next.spreadsheet_id !== P.spreadsheet_id;
       P = next;
       render(P, switching);
       setLive();
       // New layout, so there's nothing to diff against: start cells Claude wrote in this batch blank and type them in.
       deferred = [];
       for (const e of finished) {
-        if (e.kind === "read" || !WRITES.has(e.tool) || e.tab !== P.tab) continue;
+        if (e.kind === "read" || !WRITES.has(e.tool) || !isOn(e, P)) continue;
         const v = visible(e.rect);
         if (!v) continue;
         for (let r = v.r0; r <= v.r1; r++) for (let c = v.c0; c <= v.c1; c++) {
@@ -927,10 +1011,11 @@ td.typed { animation: typed 320ms var(--ease) both; }
     const d = (ms) => sleep(Math.round(ms * pace()));
     for (const e of edits) {
       i++;
+      playing = e.kind;
       if (e.pending) {
         // Just started: its row appears and the cursor goes to where it's about to work.
         showStep("run", e);
-        const v = e.tab === P.tab ? visible(e.rect) : null;
+        const v = isOn(e, P) ? visible(e.rect) : null;
         if (v) {
           ui.cur.classList.toggle("scan", e.kind === "read");
           ui.cur.classList.remove("sweep");
@@ -946,7 +1031,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
         continue;
       }
       showStep("run", e);
-      const v = e.tab === P.tab ? visible(e.rect) : null;
+      const v = isOn(e, P) ? visible(e.rect) : null;
       if (v && e.kind === "read") {
         ui.cur.classList.add("scan");
         ui.cur.classList.remove("sweep");
@@ -1002,6 +1087,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
   // Polls are cheap when nothing happened (the server answers from memory), so they come fast while
   // Claude is at work and ease off as the sheet goes quiet.
   let timer, lastEditAt = Date.now(), failures = 0, polling = false;
+  let playing = null; // the kind of step being animated ("read" or "edit"), for the Live label
   const FAST = 600, MID = 1500, SLOW = 3000, ACTIVE_MS = 10_000, IDLE_SLOW = 60_000, IDLE_STOP = 10 * 60_000;
 
   function setLive() {
@@ -1012,7 +1098,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     ui.live.classList.toggle("polling", polling && !working);
     ui.live.classList.toggle("paused", canPoll && !polling && !working && !done);
     ui.live.classList.toggle("done", done && !working);
-    ui.live.lastChild.textContent = busy ? "Editing" : running() ? "Working" : done ? "Done" : polling ? "Live" : "Paused";
+    ui.live.lastChild.textContent = busy ? (playing === "read" ? "Reading" : "Editing") : running() ? "Working" : done ? "Done" : polling ? "Live" : "Paused";
     ui.live.title = polling ? "Updating as Claude edits this sheet" : "Click to keep watching for edits";
   }
 
@@ -1033,7 +1119,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     if (idle > IDLE_STOP) return stopPolling();
     if (document.hidden) return schedule(SLOW);
     try {
-      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: P.spreadsheet_id, range: P.window, since: seq, ...(pinned && { stay: true }), ...(account && { account }) } });
+      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(P.spreadsheet_id !== home.id && { showing: P.spreadsheet_id }), range: P.window, since: seq, ...(pinned && { stay: true }), ...(account && { account }) } });
       const u = res && res.structuredContent;
       if (!u || res.isError) throw new Error("bad update");
       failures = 0;
@@ -1074,6 +1160,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
     P = inflate(s.preview);
     account = s.account;
     seq = s.seq || 0;
+    home = { id: P.spreadsheet_id, title: P.title };
+    noteBook(home.id, home.title, P.tab);
+    for (const e of s.edits || []) if (e.spreadsheet && !e.failed) noteBook(e.spreadsheet, e.spreadsheet_title, e.tab, e.rect);
     render(P);
     setLive();
     // Steps from before the preview opened are counted and outlined, not replayed; one still running shows as such.
@@ -1081,7 +1170,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
       for (const e of s.edits) {
         if (!e.pending && !e.failed) history.push(e);
         stepLog.push({ e, state: e.pending ? "run" : e.failed ? "fail" : "ok", at: Date.now() });
-        if (e.tab && !e.failed) aiAt = { tab: e.tab, rect: e.rect || null };
+        if (e.tab && !e.failed) aiAt = { book: bookOf(e), tab: e.tab, rect: e.rect || null };
       }
       renderSteps();
       markClaudeTab();

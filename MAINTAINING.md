@@ -91,13 +91,13 @@ Safety features:
 
 Users sign in through this project's Google OAuth client, which ships inside the npm package and the Claude Desktop extension as `oauth-client.json`. It's git-ignored and must never be committed. GitHub Actions gets it from the `OAUTH_CLIENT_JSON` repository secret.
 
-npm publishing is automatic: pushing a `v*` tag runs `.github/workflows/publish.yml`, which publishes to npm through npm trusted publishing (no npm login or 2FA prompt).
+npm publishing is automatic: pushing a `v*` tag runs `.github/workflows/publish.yml`, which publishes to npm through npm trusted publishing (no npm login or 2FA prompt). The trusted publisher on npmjs.com is tied to the repo name (`atc07/sheets-mcp`) and `publish.yml`; if either is renamed, update it under the package's Settings → Trusted Publisher, or the publish fails with a 404.
 
 1. Make sure `oauth-client.json` is in the project root (needed for the Desktop build):
    ```bash
    cp ~/.sheets-mcp/credentials.json oauth-client.json
    ```
-2. Bump the version (this also creates the git tag):
+2. Bump the version (this also creates the git tag). Set the same version in both places in `server.json` first, and commit it, so the tag includes it:
    ```bash
    npm version patch        # or minor / major
    ```
@@ -111,3 +111,8 @@ npm publishing is automatic: pushing a `v*` tag runs `.github/workflows/publish.
    git push --follow-tags
    ```
    Watch it under the repo's **Actions** tab. To test the workflow without publishing, run it manually from Actions (the dry-run box is checked by default).
+5. Once the new version is on npm, update the official MCP Registry listing (`io.github.atc07/sheets-mcp`). The registry checks the npm package, so this has to come after step 4:
+   ```bash
+   mcp-publisher publish    # first time on a machine: brew install mcp-publisher && mcp-publisher login github
+   ```
+6. After a change to the live preview widget, tell users who update to quit and reopen Claude Desktop: it keeps the old widget in memory until restarted.

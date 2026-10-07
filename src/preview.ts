@@ -540,7 +540,8 @@ export function previewSummary(p: Preview, replayed: number) {
   return (
     `The user now sees a live view of ${shown}` +
     (replayed ? `, caught up on your ${replayed} earlier step${replayed === 1 ? "" : "s"}` : p.highlight ? `, with ${p.highlight.a1} outlined` : "") +
-    `. It follows each read and edit you make in this spreadsheet from now on and folds away by itself when you're done, so don't call show_range again for this task, and don't repeat its contents.` +
+    `. It follows each read and edit you make in this spreadsheet from now on and folds away by itself when you're done, so don't call show_range again for this task, and don't repeat its contents. ` +
+    `(It only draws in the Claude desktop app and claude.ai. If a later message comes from another device, such as a device hint that the computer is idle, switch to Markdown snapshots of the cells you touch, as the server instructions describe.)` +
     (p.truncated ? ` Only ${MAX_ROWS} rows and ${MAX_COLS} columns are shown.` : "")
   );
 }

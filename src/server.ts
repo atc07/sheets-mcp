@@ -5,6 +5,7 @@ import { colToIndex, hexToColor, indexToCol, parseA1, quoteSheet, spreadsheetIdF
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
+import { deviceHint } from "./device.js";
 import { findSpreadsheets, forgetAccount, forgetSpreadsheet, looksLikeSpreadsheetRef, pinSpreadsheet, recentSpreadsheets, rememberSpreadsheet, spreadsheetUrl } from "./recent.js";
 import { RECENT_HTML } from "./recent-html.js";
 import {
@@ -637,7 +638,8 @@ export function createServer() {
         "If the show_recent_sheets tool is available, call it whenever the user wants to work on a spreadsheet without pasting a link or naming one that matches exactly (\"let's work on my sheets\", \"the budget one\"), and when a name matches several: they pick from the sheets they've worked on, or paste a link. Don't call it again once they've picked. " +
         "Without show_recent_sheets, call find_spreadsheet when they name a sheet: it knows the spreadsheets they've used with Sheets MCP before. Neither can search their Google Drive, so ask for the link if nothing matches. " +
         "When several Google accounts are connected, some tools reply that the account must be confirmed: ask the user which account to use, then call the tool again with `account` set to their choice. Never pick an account for them. " +
-        "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once per task. If you've already started without it, call it right away; it catches up on what you've done.",
+        "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once per task. If you've already started without it, call it right away; it catches up on what you've done. " +
+        "The live view only draws in the Claude desktop app and claude.ai. When your context indicates the user is on another device (a device hint saying their computer is idle, or a message from a phone or Remote Control), don't call show_range; the tool results then say how to report instead: a short summary in your final reply of the turn (what you did in plain words, the few results that changed as before → after, and one link to the area), since phone apps condense text written between tool calls. Go back to the live view once a message shows they're at the computer again.",
     },
   );
 
@@ -797,15 +799,23 @@ export function createServer() {
         if (opts.preview) {
           const out: Record<string, any> = { ...(result as Record<string, unknown>), account: usedAccount };
           const text = opts.preview === "show" ? previewSummary(out.preview, out.edits.length) : "ok";
-          return { content: [{ type: "text" as const, text }], structuredContent: out };
+          const content = [{ type: "text" as const, text }];
+          // The view was drawn on this computer, but if the user is away from it they're reading on a phone.
+          const away = opts.preview === "show" ? await deviceHint() : undefined;
+          if (away) content.push({ type: "text" as const, text: away });
+          return { content, structuredContent: out };
         }
         let text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
         if (usedAccount && all.length > 1) text = `[account: ${usedAccount}]\n${text}`;
         const content = [{ type: "text" as const, text }];
         if (sheetId && !UNLOGGED.has(name)) {
-          // Nudge Claude to open the live preview, so the user can watch the rest of the work.
+          // Away from this computer, the user is reading on a phone: ask for a Markdown snapshot instead of the live view.
+          const away = await deviceHint();
           const shown = previewShownAt.get(sheetId);
-          if (previewsOn && (!shown || Date.now() - shown > PREVIEW_FRESH_MS) && !watchedFromElsewhere(sheetId)) {
+          if (away) {
+            content.push({ type: "text" as const, text: away });
+          } else if (previewsOn && (!shown || Date.now() - shown > PREVIEW_FRESH_MS) && !watchedFromElsewhere(sheetId)) {
+            // Nudge Claude to open the live preview, so the user can watch the rest of the work.
             content.push({
               type: "text" as const,
               text: "The user can't see what you're doing in this sheet. Call show_range now (the spreadsheet alone is enough; add `range` for the area you're working in): it catches up on what you've done so far, then shows each read and edit live. Call it once per task.",

@@ -12,6 +12,8 @@ export interface RecentSpreadsheet {
   account: string;
   last_used: string;
   uses: number;
+  /** Kept at the top of the "Recently worked on" list, and never dropped to make room. */
+  pinned?: boolean;
 }
 
 const RECENT_PATH = join(CONFIG_DIR, "recent.json");
@@ -39,8 +41,25 @@ export function rememberSpreadsheet(id: string, title: string, account: string) 
   if (!title) return;
   const list = load();
   const prior = list.find((x) => x.id === id);
-  const entry = { id, title, account, last_used: new Date().toISOString(), uses: (prior?.uses ?? 0) + 1 };
-  save([entry, ...list.filter((x) => x.id !== id)].slice(0, MAX_RECENT));
+  const entry: RecentSpreadsheet = { id, title, account, last_used: new Date().toISOString(), uses: (prior?.uses ?? 0) + 1, ...(prior?.pinned && { pinned: true }) };
+  const rest = list.filter((x) => x.id !== id);
+  // Full: drop the oldest unpinned sheet.
+  for (let i = rest.length - 1; rest.length >= MAX_RECENT && i >= 0; i--) if (!rest[i].pinned) rest.splice(i, 1);
+  save([entry, ...rest]);
+}
+
+export function pinSpreadsheet(id: string, pinned: boolean) {
+  const list = load();
+  const entry = list.find((x) => x.id === id);
+  if (!entry) return;
+  if (pinned) entry.pinned = true;
+  else delete entry.pinned;
+  save(list);
+}
+
+/** Every remembered spreadsheet for the "Recently worked on" list: pinned first, then most recent. */
+export function recentSpreadsheets(): RecentSpreadsheet[] {
+  return load().sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.last_used.localeCompare(a.last_used));
 }
 
 export function forgetAccount(account: string) {

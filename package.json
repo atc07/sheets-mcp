@@ -11,7 +11,8 @@
     "accounts": "node dist/index.js accounts",
     "pack:extension": "node scripts/pack-extension.mjs",
     "render:showcase": "node scripts/render-showcase.mjs",
-    "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('oauth-client.json')\""
+    "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('oauth-client.json')\"",
+    "build:site": "npm run build && node scripts/build-site-embeds.mjs"
   },
   "license": "MIT",
   "type": "module",

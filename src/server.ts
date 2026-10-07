@@ -4,7 +4,9 @@ import { z } from "zod";
 import { colToIndex, hexToColor, indexToCol, parseA1, quoteSheet, spreadsheetIdFrom, toA1 } from "./a1.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
-import { findSpreadsheets, forgetAccount, looksLikeSpreadsheetRef, rememberSpreadsheet, spreadsheetUrl } from "./recent.js";
+import { createHash } from "node:crypto";
+import { findSpreadsheets, forgetAccount, forgetSpreadsheet, looksLikeSpreadsheetRef, pinSpreadsheet, recentSpreadsheets, rememberSpreadsheet, spreadsheetUrl } from "./recent.js";
+import { RECENT_HTML } from "./recent-html.js";
 import {
   PREVIEW_HTML,
   PREVIEW_MIME,
@@ -27,6 +29,8 @@ type Cell = string | number | boolean | null;
 
 /** The package version, reported to MCP clients (dist/server.js sits one folder below package.json). */
 const VERSION: string = createRequire(import.meta.url)("../package.json").version;
+/** The "Recently worked on" widget, addressed by a hash of its page like the preview (hosts cache by URI). */
+const RECENT_URI = `ui://sheets-mcp/recent-${createHash("sha256").update(RECENT_HTML).digest("hex").slice(0, 10)}.html`;
 const MAX_WRITE_CELLS = 10_000;
 const UNDO_DEPTH = 20;
 const ERROR_VALUE = /^#(REF!|N\/A|VALUE!|DIV\/0!|NAME\?|NUM!|NULL!|ERROR!|SPILL!|CALC!)/;
@@ -475,10 +479,10 @@ const followed = new Map<string, number>();
 const TASK_GAP_MS = 10 * 60_000;
 /** A preview that polled this recently is open on the user's screen. */
 const PREVIEW_LIVE_MS = 30_000;
-const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "create_spreadsheet", "show_range", "preview_updates"]);
+const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "show_recent_sheets", "recent_sheets_update", "create_spreadsheet", "show_range", "preview_updates"]);
 const READS = new Set(["get_spreadsheet_info", "read_range", "read_ranges"]);
 /** Tools that only look (hosts can run these without asking), and tools that can overwrite or remove what's in a sheet. */
-const READ_ONLY = new Set([...READS, "find_spreadsheet", "show_range", "preview_updates"]);
+const READ_ONLY = new Set([...READS, "find_spreadsheet", "show_recent_sheets", "show_range", "preview_updates"]);
 const DESTRUCTIVE = new Set(["write_range", "fill_range", "clear_range", "find_replace", "delete_rows_or_columns", "manage_tab", "merge_cells", "delete_chart", "batch_update"]);
 
 function pushActivity(id: string, e: Activity) {
@@ -629,8 +633,9 @@ export function createServer() {
     {
       instructions:
         "Sheets MCP lets you read and edit the user's Google Sheets. " +
-        "The first time the user brings up spreadsheets in a conversation, briefly offer what you can do (summarize a sheet, add columns and formulas, clean up formatting, sort and filter, add dropdowns, build charts, create new spreadsheets) and ask them to paste a link to the sheet. " +
-        "If they name a spreadsheet instead of pasting a link, call find_spreadsheet: it knows the spreadsheets they've used with Sheets MCP before (it can't search their Google Drive, so ask for the link if nothing matches). " +
+        "The first time the user brings up spreadsheets in a conversation, briefly offer what you can do (summarize a sheet, add columns and formulas, clean up formatting, sort and filter, add dropdowns, build charts, create new spreadsheets) and ask which sheet. " +
+        "If the show_recent_sheets tool is available, call it whenever the user wants to work on a spreadsheet without pasting a link or naming one that matches exactly (\"let's work on my sheets\", \"the budget one\"), and when a name matches several: they pick from the sheets they've worked on, or paste a link. Don't call it again once they've picked. " +
+        "Without show_recent_sheets, call find_spreadsheet when they name a sheet: it knows the spreadsheets they've used with Sheets MCP before. Neither can search their Google Drive, so ask for the link if nothing matches. " +
         "When several Google accounts are connected, some tools reply that the account must be confirmed: ask the user which account to use, then call the tool again with `account` set to their choice. Never pick an account for them. " +
         "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once per task. If you've already started without it, call it right away; it catches up on what you've done.",
     },
@@ -648,8 +653,28 @@ export function createServer() {
             text:
               "I just set up Sheets MCP. Welcome me in one short sentence, then check which Google accounts are connected (google_accounts, action \"list\"; if none, help me sign in). " +
               "Show a short bulleted list of things you can do in Google Sheets, with a one-line example request for each: summarize a sheet, add columns and formulas, clean up formatting, sort and filter, add dropdowns, build a chart, create a new spreadsheet. " +
-              "Finish by asking which sheet I'd like to work on, and say I can paste its link. " +
+              (previewsOn
+                ? "Finish by asking which sheet I'd like to work on: if I've used any before, show them with show_recent_sheets; either way, say I can paste a link. "
+                : "Finish by asking which sheet I'd like to work on, and say I can paste its link. ") +
               "Below that, add one short line in small print: Sheets MCP is free and open source, and a star at https://github.com/atc07/sheets-mcp helps others find it.",
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    "recent_sheets",
+    { title: "Recently worked on", description: "Pick from the spreadsheets you've worked on with Sheets MCP" },
+    () => ({
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: previewsOn
+              ? "Show me the spreadsheets I've worked on (show_recent_sheets), so I can pick which to use."
+              : "List the spreadsheets I've worked on with Sheets MCP (find_spreadsheet with no query), newest first, as a short numbered list with each one's account. Then ask which to use.",
           },
         },
       ],
@@ -681,7 +706,7 @@ export function createServer() {
    */
   // Human-readable tool names, shown by hosts in place of the snake_case name (and required by directories).
   const TITLES: Record<string, string> = {
-    google_accounts: "Google accounts", find_spreadsheet: "Find a spreadsheet", create_spreadsheet: "Create a spreadsheet",
+    google_accounts: "Google accounts", find_spreadsheet: "Find a spreadsheet", show_recent_sheets: "Recently worked on", recent_sheets_update: "Pin or remove a recent sheet", create_spreadsheet: "Create a spreadsheet",
     get_spreadsheet_info: "Spreadsheet overview", read_range: "Read cells", read_ranges: "Read several ranges",
     preview_updates: "Sheet preview updates", write_range: "Write cells", fill_range: "Fill cells", append_rows: "Append rows",
     clear_range: "Clear cells", find_replace: "Find and replace", undo_last: "Undo last change", manage_tab: "Manage tabs",
@@ -697,7 +722,7 @@ export function createServer() {
     description: string,
     shape: S,
     handler: (args: z.infer<z.ZodObject<S>> & { account?: string }) => Promise<unknown>,
-    opts: { manageAccounts?: boolean; title?: string; preview?: "show" | "app" } = {},
+    opts: { manageAccounts?: boolean; title?: string; preview?: "show" | "app"; ui?: { uri: string; app?: boolean; text: (result: any) => string } } = {},
   ) {
     const fullShape = opts.manageAccounts ? shape : { ...shape, account: accountArg };
     const config = {
@@ -711,12 +736,14 @@ export function createServer() {
       // MCP Apps: show_range renders with the preview widget; preview_updates is called only by that widget.
       ...(opts.preview === "show" && { _meta: { ui: { resourceUri: PREVIEW_URI }, "ui/resourceUri": PREVIEW_URI } }),
       ...(opts.preview === "app" && { _meta: { ui: { resourceUri: PREVIEW_URI, visibility: ["app"] } } }),
+      ...(opts.ui && { _meta: opts.ui.app ? { ui: { resourceUri: opts.ui.uri, visibility: ["app"] } } : { ui: { resourceUri: opts.ui.uri }, "ui/resourceUri": opts.ui.uri } }),
     };
     return server.registerTool(name, config, (async (args: z.infer<z.ZodObject<S>> & { account?: string }) => {
       let started: { id: string; activity: Activity | undefined } | undefined;
       try {
         if (opts.manageAccounts) {
           const result = await handler(args);
+          if (opts.ui) return { content: [{ type: "text" as const, text: opts.ui.text(result) }], structuredContent: result as Record<string, unknown> };
           return { content: [{ type: "text" as const, text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }] };
         }
         const { all, fallback } = await accounts();
@@ -729,7 +756,7 @@ export function createServer() {
           if (matches.length !== 1) {
             throw new Error(
               matches.length
-                ? `${matches.length} spreadsheets used before match "${given}": ${matches.slice(0, 8).map((m) => `"${m.title}" (${m.account}, ${spreadsheetUrl(m.id)})`).join("; ")}. Ask the user which one, then use its link.`
+                ? `${matches.length} spreadsheets used before match "${given}": ${matches.slice(0, 8).map((m) => `"${m.title}" (${m.account}, ${spreadsheetUrl(m.id)})`).join("; ")}. Ask the user which one${previewsOn ? ` (show_recent_sheets with query "${given}" lets them pick)` : ""}, then use its link.`
                 : `No spreadsheet named "${given}" among the ones used with Sheets MCP before. Sheets MCP can't search the user's Google Drive: ask them to paste the sheet's link.`,
             );
           }
@@ -847,6 +874,48 @@ export function createServer() {
       };
     },
     { manageAccounts: true },
+  );
+
+  /** The list the "Recently worked on" widget draws. */
+  const recentList = () => ({
+    spreadsheets: recentSpreadsheets().map((m) => ({ id: m.id, title: m.title, url: spreadsheetUrl(m.id), account: m.account, last_used: m.last_used, ...(m.pinned && { pinned: true }) })),
+  });
+
+  const showRecent = tool(
+    "show_recent_sheets",
+    "Show the user a searchable \"Recently worked on\" list of every spreadsheet they've used with Sheets MCP, right in the conversation. They can search it, pin sheets, open them in Google Sheets, and tick several to send back to you with a request. Use it when the user asks which sheets they have or to pick from their sheets, wants to combine or compare sheets without saying which, or names a sheet that matches more than one. It can't list the rest of their Google Drive.",
+    { query: z.string().optional().describe("Fill in the list's search box, e.g. a name the user mentioned") },
+    async ({ query }) => ({ ...recentList(), ...(query && { query }) }),
+    {
+      manageAccounts: true,
+      ui: {
+        uri: RECENT_URI,
+        text: (r) =>
+          r.spreadsheets.length
+            ? `Showed the user their ${r.spreadsheets.length} recent spreadsheets as a searchable list (don't repeat it). They can tick some and send them to you. Most recent:\n` +
+              r.spreadsheets.slice(0, 25).map((m: any) => `- ${m.title} (${m.account}, ${m.url})${m.pinned ? " [pinned]" : ""}`).join("\n")
+            : "The user hasn't used any spreadsheets with Sheets MCP yet; the list says to paste a sheet's link in the chat.",
+      },
+    },
+  );
+
+  const recentUpdate = tool(
+    "recent_sheets_update",
+    "Used by the \"Recently worked on\" list to pin, unpin or remove a spreadsheet. Not for the model.",
+    { action: z.enum(["pin", "unpin", "remove"]), spreadsheet_id: z.string() },
+    async ({ action, spreadsheet_id }) => {
+      if (action === "remove") forgetSpreadsheet(spreadsheet_id);
+      else pinSpreadsheet(spreadsheet_id, action === "pin");
+      return recentList();
+    },
+    { manageAccounts: true, ui: { uri: RECENT_URI, app: true, text: () => "ok" } },
+  );
+
+  server.registerResource(
+    `recent_sheets_${RECENT_URI.slice(-15, -5)}`,
+    RECENT_URI,
+    { title: "Recently worked on", description: "Searchable list of the spreadsheets used with Sheets MCP", mimeType: PREVIEW_MIME },
+    async () => ({ contents: [{ uri: RECENT_URI, mimeType: PREVIEW_MIME, text: RECENT_HTML, _meta: { ui: { prefersBorder: false } } }] }),
   );
 
   tool(
@@ -1969,7 +2038,7 @@ export function createServer() {
     },
   );
 
-  // Only offer show_range to hosts that can display MCP Apps; elsewhere Claude would call it and the user would see nothing.
+  // Only offer show_range and the recent-sheets list to hosts that can display MCP Apps; elsewhere Claude would call them and the user would see nothing.
   server.server.oninitialized = () => {
     const caps = server.server.getClientCapabilities() as { extensions?: Record<string, unknown> } | undefined;
     const client = server.server.getClientVersion();
@@ -1978,6 +2047,8 @@ export function createServer() {
     if (!previewsOn) {
       showRange.remove();
       previewUpdates.remove();
+      showRecent.remove();
+      recentUpdate.remove();
     }
   };
 

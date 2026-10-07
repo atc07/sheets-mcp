@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recently worked on</title>
+<style>
+:root {
+  --surface: #ffffff; --surface-2: #f4f4f1; --fg: #171716; --muted: #6b6b67; --faint: #a3a39e;
+  --line: rgba(0,0,0,.08); --hover: rgba(128,128,128,.09); --accent: #188038; --accent-soft: rgba(24,128,56,.1);
+  --claude: #d97757; --sel: rgba(217,119,87,.09);
+  --shadow: 0 0 0 1px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -12px rgba(0,0,0,.12);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --ease: cubic-bezier(.23,1,.32,1);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --surface: #1f1e1d; --surface-2: #262624; --fg: #ededeb; --muted: #9d9d98; --faint: #6b6b66;
+  --line: rgba(255,255,255,.08); --hover: rgba(255,255,255,.05); --accent: #5bb974; --accent-soft: rgba(91,185,116,.14);
+  --sel: rgba(217,119,87,.14);
+  --shadow: 0 0 0 1px rgba(255,255,255,.09), 0 8px 24px -12px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: transparent; }
+body { font: 13px/1.4 var(--font); color: var(--fg); padding: 2px; }
+button, input { font: inherit; color: inherit; }
+.card { background: var(--surface); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 10px 14px; }
+.head > svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.head h1 { font-size: 13.5px; font-weight: 600; margin: 0; white-space: nowrap; }
+.head .count { color: var(--muted); font-size: 12px; }
+.search { position: relative; margin-left: auto; flex: 0 1 240px; min-width: 120px; }
+.search svg { position: absolute; left: 9px; top: 50%; width: 13px; height: 13px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+.search input { width: 100%; height: 30px; padding: 0 10px 0 28px; border-radius: 8px; border: 0; background: var(--surface-2); outline: none; box-shadow: inset 0 0 0 1px transparent; transition: box-shadow 150ms var(--ease); }
+.search input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
+.search input::placeholder { color: var(--faint); }
+.accts { display: flex; gap: 4px; padding: 0 12px 8px; overflow-x: auto; scrollbar-width: none; }
+.accts::-webkit-scrollbar { display: none; }
+.chip { flex: none; border: 0; border-radius: 999px; padding: 4px 10px; font-size: 12px; background: var(--surface-2); color: var(--muted); cursor: pointer; transition: background-color 150ms var(--ease), color 150ms var(--ease); }
+.chip:hover { color: var(--fg); }
+.chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.list { list-style: none; margin: 0; padding: 4px 6px 6px; max-height: 336px; overflow-y: auto; box-shadow: inset 0 1px 0 var(--line); }
+.row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; user-select: none; transition: background-color 120ms var(--ease); }
+.row:hover { background: var(--hover); }
+.row[aria-selected="true"] { background: var(--sel); }
+.row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.box { flex: none; width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1.5px var(--faint); display: grid; place-items: center; transition: background-color 120ms var(--ease), box-shadow 120ms var(--ease); }
+.box svg { width: 11px; height: 11px; color: #fff; opacity: 0; transform: scale(.6); transition: opacity 120ms var(--ease), transform 160ms var(--ease); }
+.row[aria-selected="true"] .box { background: var(--claude); box-shadow: none; }
+.row[aria-selected="true"] .box svg { opacity: 1; transform: none; }
+.file { flex: none; width: 18px; height: 18px; color: var(--accent); }
+.txt { min-width: 0; flex: 1; }
+.name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.name mark { background: none; color: inherit; text-decoration: underline; text-decoration-color: var(--claude); text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.meta { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acts { display: flex; gap: 2px; flex: none; }
+.ic { width: 28px; height: 28px; border: 0; border-radius: 7px; background: none; color: var(--faint); display: grid; place-items: center; cursor: pointer; transition: color 120ms var(--ease), background-color 120ms var(--ease), opacity 120ms var(--ease); }
+.ic svg { width: 15px; height: 15px; }
+.ic:hover { color: var(--fg); background: var(--hover); }
+.ic:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ic.on { color: var(--claude); }
+/* Secondary actions show on hover; a pinned sheet keeps its pin visible. */
+@media (hover: hover) {
+  .row .ic:not(.on) { opacity: 0; }
+  .row:hover .ic, .row:focus-within .ic { opacity: 1; }
+}
+.empty { padding: 28px 20px 30px; text-align: center; color: var(--muted); box-shadow: inset 0 1px 0 var(--line); }
+.empty b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 4px; }
+.foot { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 14px; box-shadow: inset 0 1px 0 var(--line); background: var(--surface-2); }
+.foot .n { flex: none; font-weight: 500; white-space: nowrap; }
+.foot .clear { flex: none; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px; font-size: 12px; }
+.foot .clear:hover { color: var(--fg); }
+.foot input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border-radius: 8px; border: 0; background: var(--surface); outline: none; box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow 150ms var(--ease); }
+.foot input:focus { box-shadow: inset 0 0 0 1px var(--claude); }
+.foot input::placeholder { color: var(--faint); }
+.send { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--claude); color: #fff; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: transform 120ms var(--ease), filter 120ms var(--ease); }
+.send:hover { filter: brightness(1.06); }
+.send:active { transform: scale(.97); }
+.send svg { width: 14px; height: 14px; }
+.note { padding: 9px 14px; font-size: 12px; color: var(--muted); box-shadow: inset 0 1px 0 var(--line); }
+@media (max-width: 520px) {
+  .head { flex-wrap: wrap; }
+  .search { flex-basis: 100%; margin-left: 0; }
+  .foot { flex-wrap: wrap; }
+  .foot input { flex-basis: 100%; order: 3; }
+  .send { margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="head">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    <h1>Recently worked on</h1>
+    <span class="count" id="count"></span>
+    <label class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search spreadsheets" aria-label="Search spreadsheets" autocomplete="off">
+    </label>
+  </div>
+  <div class="accts" id="accts" hidden></div>
+  <ul class="list" id="list" role="listbox" aria-multiselectable="true" aria-label="Spreadsheets"></ul>
+  <div class="empty" id="empty" hidden></div>
+  <div class="foot" id="foot" hidden>
+    <span class="n" id="n"></span>
+    <button class="clear" id="clear" type="button">Clear</button>
+    <input id="ask" type="text" placeholder="What should Claude do with them? (optional)" aria-label="What should Claude do with them?" autocomplete="off">
+    <button class="send" id="send" type="button">Send to Claude<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </div>
+  <div class="note" id="note" hidden></div>
+</div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const ICON = {
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    file: '<svg class="file" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" opacity=".16"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M6.5 11h11v7h-11zM6.5 14.5h11M10.5 11v7"/></svg>',
+    pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>',
+    pinned: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5" fill="none"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>',
+    open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+    remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  };
+
+  // ---------- host messaging (JSON-RPC over postMessage) ----------
+  let nextId = 1;
+  const pending = new Map();
+  const send = (msg) => window.parent.postMessage({ jsonrpc: "2.0", ...msg }, "*");
+  const notify = (method, params) => send({ method, params });
+  const request = (method, params) => {
+    const id = nextId++;
+    send({ id, method, params });
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  };
+
+  // ---------- state ----------
+  let sheets = [];          // { id, title, url, account, last_used, pinned }
+  let canEdit = false;      // host lets the app call server tools (pin, remove)
+  let query = "";
+  let acct = "";            // account filter; "" = all
+  const picked = new Map(); // id -> sheet, in the order picked
+
+  const words = (s) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const matches = (s) => {
+    if (acct && s.account !== acct) return false;
+    const want = words(query);
+    if (!want.length) return true;
+    const hay = words(s.title + " " + s.account);
+    return want.every((w) => hay.some((t) => t.startsWith(w)));
+  };
+
+  function ago(iso) {
+    const t = Date.parse(iso);
+    if (!t) return "";
+    const days = Math.floor((startOfDay(Date.now()) - startOfDay(t)) / 864e5);
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 7) return days + " days ago";
+    if (days < 60) return Math.round(days / 7) + (Math.round(days / 7) === 1 ? " week ago" : " weeks ago");
+    return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+  function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+
+  // Title with the searched words underlined.
+  function nameNode(title) {
+    const div = el("div", "name");
+    div.title = title;
+    const want = words(query);
+    if (!want.length) { div.textContent = title; return div; }
+    const re = new RegExp("(^|[^\\p{L}\\p{N}])(" + want.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "giu");
+    let last = 0, m;
+    while ((m = re.exec(title))) {
+      const start = m.index + m[1].length;
+      div.append(title.slice(last, start));
+      div.append(el("mark", null, m[2]));
+      last = start + m[2].length;
+      if (re.lastIndex === m.index) re.lastIndex++;
+    }
+    div.append(title.slice(last));
+    return div;
+  }
+
+  function iconButton(kind, label, on) {
+    const b = el("button", "ic" + (on ? " on" : ""));
+    b.type = "button";
+    b.innerHTML = ICON[kind];
+    b.setAttribute("aria-label", label);
+    b.title = label;
+    return b;
+  }
+
+  function render() {
+    const accounts = [...new Set(sheets.map((s) => s.account))];
+    const accts = $("accts");
+    accts.hidden = accounts.length < 2;
+    accts.textContent = "";
+    if (accounts.length > 1) {
+      for (const a of ["", ...accounts]) {
+        const c = el("button", "chip", a || "All accounts");
+        c.type = "button";
+        c.setAttribute("aria-pressed", String(acct === a));
+        c.addEventListener("click", () => { acct = a; render(); });
+        accts.append(c);
+      }
+    }
+
+    const shown = sheets.filter(matches);
+    $("count").textContent = sheets.length ? String(sheets.length) : "";
+    const list = $("list");
+    list.textContent = "";
+    for (const s of shown) {
+      const row = el("li", "row");
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(picked.has(s.id)));
+      row.tabIndex = 0;
+      const box = el("span", "box");
+      box.innerHTML = ICON.check;
+      const txt = el("div", "txt");
+      txt.append(nameNode(s.title), el("div", "meta", [ago(s.last_used), accounts.length > 1 ? s.account : ""].filter(Boolean).join(" · ")));
+      const acts = el("div", "acts");
+      if (canEdit) {
+        const rm = iconButton("remove", "Remove from this list");
+        rm.addEventListener("click", (e) => { e.stopPropagation(); update("remove", s); });
+        acts.append(rm);
+      }
+      const open = iconButton("open", "Open in Google Sheets");
+      open.addEventListener("click", (e) => { e.stopPropagation(); request("ui/open-link", { url: s.url }).catch(() => window.open(s.url, "_blank", "noopener")); });
+      acts.append(open);
+      if (canEdit) {
+        const pin = iconButton(s.pinned ? "pinned" : "pin", s.pinned ? "Unpin" : "Pin to top", s.pinned);
+        pin.addEventListener("click", (e) => { e.stopPropagation(); update(s.pinned ? "unpin" : "pin", s); });
+        acts.append(pin);
+      }
+      const file = el("span");
+      file.innerHTML = ICON.file;
+      row.append(box, file.firstChild, txt, acts);
+      const toggle = () => { picked.has(s.id) ? picked.delete(s.id) : picked.set(s.id, s); render(); };
+      row.addEventListener("click", toggle);
+      row.addEventListener("keydown", (e) => { if (e.target === row && (e.key === " " || e.key === "Enter")) { e.preventDefault(); toggle(); focusRow(s.id); } });
+      row.dataset.id = s.id;
+      list.append(row);
+    }
+    list.hidden = !shown.length;
+
+    const empty = $("empty");
+    empty.hidden = !!shown.length;
+    empty.textContent = "";
+    if (!sheets.length) {
+      empty.append(el("b", null, "No spreadsheets yet"), "Paste a Google Sheets link in the chat. Every sheet Claude works on shows up here.");
+    } else if (!shown.length) {
+      empty.append(el("b", null, "Nothing matches"), "Only sheets you've used with Sheets MCP are listed. Paste a link in the chat to add another.");
+    }
+
+    const n = picked.size;
+    $("foot").hidden = !n;
+    $("n").textContent = n === 1 ? "1 sheet" : n + " sheets";
+    $("ask").placeholder = n > 1 ? "What should Claude do with them? (optional)" : "What should Claude do with it? (optional)";
+  }
+
+  function focusRow(id) {
+    const r = [...document.querySelectorAll(".row")].find((x) => x.dataset.id === id);
+    if (r) r.focus();
+  }
+
+  function showNote(text) {
+    const note = $("note");
+    note.textContent = text;
+    note.hidden = !text;
+  }
+
+  async function update(action, s) {
+    // Show the change at once; the server's list replaces it when it answers.
+    if (action === "remove") { sheets = sheets.filter((x) => x.id !== s.id); picked.delete(s.id); }
+    else s.pinned = action === "pin";
+    if (action !== "remove") sheets.sort(order);
+    render();
+    try {
+      const r = await request("tools/call", { name: "recent_sheets_update", arguments: { action, spreadsheet_id: s.id } });
+      const list = r && r.structuredContent && r.structuredContent.spreadsheets;
+      if (Array.isArray(list)) { sheets = list; render(); }
+    } catch {
+      showNote("Couldn't save that change.");
+    }
+  }
+  const order = (a, b) => Number(!!b.pinned) - Number(!!a.pinned) || String(b.last_used).localeCompare(String(a.last_used));
+
+  async function sendToClaude() {
+    const chosen = [...picked.values()];
+    if (!chosen.length) return;
+    const ask = $("ask").value.trim();
+    const several = new Set(chosen.map((s) => s.account)).size > 1;
+    const lines = chosen.map((s) => "- " + s.title + (several ? " (" + s.account + ")" : "") + ": " + s.url);
+    const text = (chosen.length > 1 ? "Use these spreadsheets:\n" : "Use this spreadsheet:\n") + lines.join("\n") + "\n\n" +
+      (ask || (chosen.length > 1 ? "Take a look at them and tell me briefly what's in each and how they relate." : "Take a look and tell me briefly what's in it."));
+    const btn = $("send");
+    btn.disabled = true;
+    try {
+      await request("ui/message", { role: "user", content: [{ type: "text", text }] });
+      picked.clear();
+      $("ask").value = "";
+      showNote("");
+      render();
+    } catch {
+      // The host won't take messages from apps: hand the text over to paste instead.
+      try { await navigator.clipboard.writeText(text); showNote("Copied. Paste it into the chat to send it to Claude."); }
+      catch { showNote("Couldn't send it. Mention the sheets by name in the chat instead."); }
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  $("q").addEventListener("input", (e) => { query = e.target.value; render(); });
+  $("q").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); const r = document.querySelector(".row"); if (r) r.focus(); }
+    if (e.key === "Escape" && query) { e.preventDefault(); e.target.value = ""; query = ""; render(); }
+  });
+  $("list").addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const rows = [...document.querySelectorAll(".row")];
+    const i = rows.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    if (e.key === "ArrowUp" && i === 0) return $("q").focus();
+    const next = rows[i + (e.key === "ArrowDown" ? 1 : -1)];
+    if (next) next.focus();
+  });
+  $("clear").addEventListener("click", () => { picked.clear(); render(); });
+  $("send").addEventListener("click", sendToClaude);
+  $("ask").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); sendToClaude(); } });
+
+  function applyContext(ctx) {
+    if (!ctx) return;
+    if (ctx.theme) document.documentElement.dataset.theme = ctx.theme;
+    const font = ctx.styles && ctx.styles.variables && ctx.styles.variables["--font-sans"];
+    if (font) document.documentElement.style.setProperty("--font", font);
+  }
+
+  function onResult(params) {
+    const list = params && params.structuredContent && params.structuredContent.spreadsheets;
+    if (!Array.isArray(list)) return;
+    sheets = list;
+    const q = params.structuredContent.query;
+    if (q && !query) { query = q; $("q").value = q; }
+    render();
+  }
+
+  window.addEventListener("message", (e) => {
+    if (e.source !== window.parent) return;
+    const m = e.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id != null && !m.method && pending.has(m.id)) {
+      const { resolve, reject } = pending.get(m.id);
+      pending.delete(m.id);
+      return m.error ? reject(m.error) : resolve(m.result);
+    }
+    if (m.method === "ui/notifications/tool-result") onResult(m.params);
+    else if (m.method === "ui/notifications/host-context-changed") applyContext(m.params);
+    else if (m.method === "ui/resource-teardown" && m.id != null) send({ id: m.id, result: {} });
+    else if (m.id != null && m.method) send({ id: m.id, error: { code: -32601, message: "Method not found" } });
+  });
+
+  // Tell the host how tall the widget is, so the chat sizes the frame to fit.
+  let lastH = 0;
+  new ResizeObserver(() => {
+    const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+    if (h !== lastH) { lastH = h; notify("ui/notifications/size-changed", { height: h }); }
+  }).observe(document.documentElement);
+
+  render();
+  request("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "Sheets MCP recent sheets", version: "1.0.0" },
+    appCapabilities: {},
+  }).then((r) => {
+    applyContext(r && r.hostContext);
+    canEdit = !!(r && r.hostCapabilities && r.hostCapabilities.serverTools);
+    notify("ui/notifications/initialized", {});
+    render();
+  }, () => {});
+})();
+</script>
+</body>
+</html>

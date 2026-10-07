@@ -40,7 +40,7 @@ const manifest = {
   name: "sheetsmcp",
   display_name: "Sheets MCP",
   version: pkg.version,
-  description: "Let Claude read, edit, format and chart your Google Sheets.",
+  description: "Free, open-source Google Sheets for Claude: read, edit, format and chart your spreadsheets.",
   long_description:
     "Sheets MCP connects Claude to Google Sheets. Ask Claude to add columns and formulas, clean up formatting, sort and filter, " +
     "build charts, or summarize a spreadsheet, and it makes the change directly in your sheet.\n\n" +

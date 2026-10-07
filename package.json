@@ -1,7 +1,7 @@
 {
   "name": "@sheetsmcp/server",
   "version": "1.3.3",
-  "description": "Let Claude read, edit, format and chart your Google Sheets (MCP server).",
+  "description": "Free, open-source MCP server for Google Sheets in Claude Desktop and Claude Code.",
   "scripts": {
     "build": "tsc",
     "auth": "node dist/index.js auth",

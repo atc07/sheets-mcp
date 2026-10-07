@@ -1,14 +1,29 @@
 # Sheets MCP
 
-Let Claude read, edit, format and chart your Google Sheets. Ask for a new column, a cleaner layout or a chart, and Claude makes the change directly in your spreadsheet.
+A free, open-source MCP server that lets Claude work directly in your Google Sheets: formulas, formatting, sorting and filters, dropdowns, charts and pivot tables, with undo and formula-error checks on every write. It runs on your computer and talks to Google directly, in Claude Desktop and Claude Code.
 
 **[See all features and watch the demo at sheetsmcp.io →](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=top)**
 
 [![Claude adds a profit column, totals, currency formatting and a chart while a live preview of the sheet updates in the chat](docs/live-preview.webp)](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=hero-image)
 
-Free and open source · Runs on your computer · Works in Claude Desktop and Claude Code
+Free and open source · Runs on your computer · Spreadsheet-only Google access · Claude Desktop and Claude Code
 
 If Sheets MCP saves you time, a ⭐ on GitHub helps other people find it.
+
+## Sheets MCP or Claude's built-in Google Sheets integration?
+
+Claude now has its own [Google Sheets integration](https://claude.com/resources/articles/claude-now-works-in-google-docs-sheets-and-slides) on paid plans. Both let Claude edit your spreadsheets; they suit different people.
+
+| | Sheets MCP | Claude's built-in integration |
+|---|---|---|
+| Price | Free, and works on the free Claude plan in Claude Desktop | Paid Claude plans |
+| Where it works | Claude Desktop (Chat and Code tabs) and Claude Code | Claude chat, and a sidebar inside Google Sheets |
+| Setup | One-click extension or one command. Google shows an "unverified app" screen at sign-in for now | Built in |
+| Where your data goes | From your computer straight to Google, with access to spreadsheets only. No other servers | Through Anthropic's hosted connector |
+| Code | Open source (MIT): read it, change it, run your own | Anthropic's product |
+| Extras | Several Google accounts, undo, formula-error checks, live preview in the chat | Sidebar in Sheets, edit approvals, Python for data cleaning |
+
+**In short:** on a paid plan and just want Claude to edit a sheet in chat? The built-in integration is the simplest. Want it free, local and open source, or working in Claude Code? Use Sheets MCP.
 
 ## Install
 

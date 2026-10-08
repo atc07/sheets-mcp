@@ -70,6 +70,10 @@ body { font: 13px/1.4 var(--font); color: var(--fg); padding: 2px; }
 .scroll { overflow: auto; max-height: 560px; scroll-behavior: smooth; background: #fff; color: #000; color-scheme: light;
   --grid: #e2e3e3; --surface-2: #f8f9fa; --faint: #80868b; }
 .gridwrap { position: relative; width: max-content; min-width: 100%; }
+/* Below the last row sent: the rest of the tab loads on scroll (pinned left, so it stays in view sideways too). */
+.more { position: sticky; left: 0; display: block; width: 100%; border: 0; margin: 0; padding: 9px 12px 10px 14px; text-align: left; cursor: pointer;
+  font: 500 12px/1 var(--font); color: #5f6368; background: var(--surface-2); box-shadow: inset 0 1px 0 var(--grid); }
+.more:hover { color: #1a73e8; }
 table { border-collapse: collapse; table-layout: fixed; font-family: Arial, Helvetica, sans-serif; font-size: 13.3px; font-variant-numeric: tabular-nums; }
 th, td { height: 21px; padding: 0 4px 2px; box-shadow: inset -1px -1px 0 var(--grid); white-space: nowrap; overflow: hidden; line-height: 1.2; }
 table.nogrid td { box-shadow: none; }
@@ -240,8 +244,15 @@ td.typed { animation: typed 320ms var(--ease) both; }
   // While Claude only reads, the preview follows it into the others; once it writes to its own, the grid stays there.
   const books = new Map();
 
-  // Plain text cells travel as bare strings; give every cell the same shape here.
-  const inflate = (p) => { if (p && p.rows) p.rows = p.rows.map((row) => row.map((c) => (typeof c === "string" ? { v: c } : c))); return p; };
+  // Plain text cells travel as bare strings, others as [text, style, formula?] with the styles listed once
+  // (older servers sent each cell's format inline); give every cell the same shape here.
+  const inflate = (p) => {
+    if (!p || !p.rows) return p;
+    const st = p.styles || [];
+    p.rows = p.rows.map((row) => row.map((c) => (typeof c === "string" ? { v: c } : Array.isArray(c) ? { ...st[c[1]], v: c[0], ...(c[2] && { f: c[2] }) } : c)));
+    delete p.styles;
+    return p;
+  };
   const stepId = (e) => (e.id != null ? e.id : e.seq);
   const bookOf = (e) => e.spreadsheet || home.id;
   // A step is on screen when it's in the spreadsheet and tab the grid shows.
@@ -420,6 +431,15 @@ td.typed { animation: typed 320ms var(--ease) both; }
     wrap.style.zoom = ZOOM;
     wrap.style.setProperty("--zoom", ZOOM);
     scroll.append(wrap);
+    // Rows past the ones sent: scrolling to the bottom loads the next block (or says where to see them).
+    let more = null;
+    if (p.more_below) {
+      more = el("button", "more", canPoll ? MORE_LABEL : "Showing rows " + (p.start_row + 1) + "–" + (p.start_row + p.rows.length) + ". Open in Sheets for the rest");
+      more.type = "button";
+      more.addEventListener("click", () => (canPoll ? loadMore() : open.click()));
+      scroll.append(more);
+      scroll.addEventListener("scroll", () => { if (scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 120) loadMore(); }, { passive: true });
+    }
 
     const foot = el("div", "foot");
     const step = el("div", "step"), count = el("span", "count");
@@ -446,7 +466,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     fold.append(inner);
     card.classList.toggle("done", done);
     card.append(bar, fold, foot);
-    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, frozen, steps, tabs, title, books: null, bookCount: 0, selected: null };
+    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, frozen, steps, tabs, title, more, books: null, bookCount: 0, selected: null };
     renderBooks();
     renderSteps();
     markClaudeTab();
@@ -496,7 +516,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     rushing = false;
     const quoted = /^[A-Za-z_][A-Za-z0-9_]*$/.test(title) ? title : "'" + title.replace(/'/g, "''") + "'";
     try {
-      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(book !== home.id && { showing: book }), range: quoted + "!" + windowAround(around), peek: true, since: seq, ...(account && { account }) } });
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(book !== home.id && { showing: book }), range: quoted + "!" + windowAround(around), peek: true, since: seq, view: view(), ...(account && { account }) } });
       const s = r && !r.isError && r.structuredContent;
       switching = switchingBook = null;
       if (s && s.preview) {
@@ -510,6 +530,56 @@ td.typed { animation: typed 320ms var(--ease) both; }
     switching = switchingBook = null;
     if (ui && ui.tabs) for (const b of ui.tabs.children) b.classList.remove("busy");
     if (ui && ui.books) for (const b of ui.books.children) b.classList.remove("busy");
+  }
+
+  // ---------- more rows ----------
+  // One result carries only so many cells, so a long or heavily formatted tab arrives in blocks: scrolling
+  // to the bottom of the grid fetches the next rows and adds them below, keeping the view where it was.
+  const MORE_LABEL = "More rows below. Scroll or click to load";
+  let loadingMore = false;
+  const quoteTab = (t) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(t) ? t : "'" + t.replace(/'/g, "''") + "'");
+  function loadMore() {
+    if (!canPoll || !P || !P.more_below || loadingMore || switching) return;
+    loadingMore = true;
+    if (ui.more) ui.more.textContent = "Loading more rows…";
+    // In the queue, so an animation typing into the grid finishes before rows are added to it.
+    queue = queue.then(fetchMore).catch((err) => console.error("Sheet preview:", err)).then(() => {
+      loadingMore = false;
+      if (ui && ui.more && P && P.more_below) ui.more.textContent = MORE_LABEL;
+    });
+  }
+  async function fetchMore() {
+    const p = P, width = p.col_widths.length, from = p.start_row + p.rows.length;
+    const cols = /![$]?([A-Z]+)[$]?[0-9]*:[$]?([A-Z]+)[$]?[0-9]*$/.exec(p.window || "");
+    const c0 = cols ? cols[1] : col(p.start_col), c1 = cols ? cols[2] : col(p.start_col + width - 1);
+    const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(p.spreadsheet_id !== home.id && { showing: p.spreadsheet_id }), range: quoteTab(p.tab) + "!" + c0 + (from + 1) + ":" + c1 + (from + 100), peek: true, since: seq, view: view(), ...(account && { account }) } });
+    const n = r && !r.isError && r.structuredContent && inflate(r.structuredContent.preview);
+    // The grid changed while this loaded (another tab, or Claude's edit rebuilt it): drop the block.
+    if (!n || P !== p || n.tab !== p.tab || n.spreadsheet_id !== p.spreadsheet_id || n.start_row !== from) return;
+    const pad = (row) => { const out = row.slice(0, width); while (out.length < width) out.push({ v: "" }); return out; };
+    const above = p.row_heights.reduce((a, b) => a + b, 0);
+    const known = new Set((p.charts || []).map((c) => c.id));
+    const edge = p.start_col + width;
+    P = {
+      ...p,
+      rows: [...p.rows, ...n.rows.map(pad)],
+      row_heights: [...p.row_heights, ...n.row_heights],
+      merges: [...(p.merges || []), ...(n.merges || []).filter((m) => m.c0 < edge).map((m) => ({ ...m, c1: Math.min(m.c1, edge) }))],
+      // A chart in the new block is placed from that block's top; ones hanging down from above are already shown.
+      charts: [...(p.charts || []), ...(n.charts || []).filter((c) => !known.has(c.id)).map((c) => ({ ...c, top: c.top + above }))],
+      // Live updates rebuild everything shown so far (the server still caps a rebuild at its size limit).
+      window: quoteTab(p.tab) + "!" + c0 + (p.start_row + 1) + ":" + c1 + (from + n.rows.length),
+      more_below: n.more_below,
+      truncated: n.more_below ? p.truncated : undefined,
+      formulas_omitted: p.formulas_omitted || n.formulas_omitted,
+    };
+    const top = ui.scroll.scrollTop, left = ui.scroll.scrollLeft;
+    render(P, false);
+    ui.scroll.scrollTo({ top, left, behavior: "instant" });
+    // Put the outline back where it was, without moving the view.
+    const v = pinned ? null : visible(changed() || P.highlight);
+    if (v) { moveCursor(v, false); ui.cur.classList.add("settled"); }
+    showSummary();
   }
 
   // ---------- charts ----------
@@ -891,9 +961,10 @@ td.typed { animation: typed 320ms var(--ease) both; }
     armDone();
   }
 
-  // Claude has no "finished" signal, so fold the preview down once it goes quiet:
-  // shortly after the last step, or after a while if it never touched the sheet.
-  const QUIET_MS = 12_000, NEVER_STARTED_MS = 90_000, STUCK_MS = 60_000;
+  // Claude has no "finished" signal, so fold the preview down once it goes quiet: a while after the last step
+  // (Claude often thinks for 30-60 s between steps of one task, and the fold shouldn't flap meanwhile), or
+  // after longer if it never touched the sheet.
+  const QUIET_MS = 60_000, NEVER_STARTED_MS = 90_000, STUCK_MS = 60_000;
   function armDone() {
     clearTimeout(doneTimer);
     if (done || keepOpen || busy || backlog) return;
@@ -1088,7 +1159,23 @@ td.typed { animation: typed 320ms var(--ease) both; }
   // Claude is at work and ease off as the sheet goes quiet.
   let timer, lastEditAt = Date.now(), failures = 0, polling = false;
   let playing = null; // the kind of step being animated ("read" or "edit"), for the Live label
-  const FAST = 600, MID = 1500, SLOW = 3000, ACTIVE_MS = 10_000, IDLE_SLOW = 60_000, IDLE_STOP = 10 * 60_000;
+  const FAST = 600, MID = 1500, SLOW = 3000, HIDDEN = 15_000, ACTIVE_MS = 10_000, IDLE_SLOW = 60_000, IDLE_STOP = 10 * 60_000;
+
+  // Whether the user can see this preview. Each poll says so, and the server counts only a preview in view as
+  // "watching": one scrolled up the chat (or left from an earlier request) makes Claude open a fresh one where
+  // the user is looking. The frame's document is observed against the chat's viewport (at least a few rows showing).
+  let onScreen = true;
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver((entries) => {
+      const e = entries[entries.length - 1];
+      const was = onScreen;
+      onScreen = e.isIntersecting && e.intersectionRect.height >= Math.min(80, e.boundingClientRect.height / 2);
+      // Back in view: catch up and report right away.
+      if (onScreen && !was && polling) schedule(0);
+    }, { threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] }).observe(document.documentElement);
+  }
+  const view = () => (!onScreen ? "off_screen" : document.hidden ? "background" : "on_screen");
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && polling) schedule(0); });
 
   function setLive() {
     if (!ui) return;
@@ -1117,9 +1204,9 @@ td.typed { animation: typed 320ms var(--ease) both; }
     if (!polling) return;
     const idle = Date.now() - lastEditAt;
     if (idle > IDLE_STOP) return stopPolling();
-    if (document.hidden) return schedule(SLOW);
+    if (document.hidden) { await heartbeat(); return schedule(HIDDEN); }
     try {
-      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(P.spreadsheet_id !== home.id && { showing: P.spreadsheet_id }), range: P.window, since: seq, ...(pinned && { stay: true }), ...(account && { account }) } });
+      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(P.spreadsheet_id !== home.id && { showing: P.spreadsheet_id }), range: P.window, since: seq, view: view(), ...(pinned && { stay: true }), ...(account && { account }) } });
       const u = res && res.structuredContent;
       if (!u || res.isError) throw new Error("bad update");
       failures = 0;
@@ -1137,7 +1224,16 @@ td.typed { animation: typed 320ms var(--ease) both; }
       return schedule(SLOW * failures);
     }
     const quiet = Date.now() - lastEditAt;
-    schedule(running() || quiet < ACTIVE_MS ? FAST : quiet > IDLE_SLOW ? SLOW : MID);
+    schedule(!onScreen ? SLOW : running() || quiet < ACTIVE_MS ? FAST : quiet > IDLE_SLOW ? SLOW : MID);
+  }
+
+  // In a background window nothing is drawn, so instead of polling the preview checks in now and then: the server
+  // knows it's still here (and whether it's in view), and while Claude keeps working the preview doesn't go idle.
+  async function heartbeat() {
+    try {
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, range: P.window, since: seq, view: view(), heartbeat: true, ...(account && { account }) } });
+      if (r && !r.isError && r.structuredContent && r.structuredContent.busy) lastEditAt = Date.now();
+    } catch {}
   }
 
   // ---------- startup ----------

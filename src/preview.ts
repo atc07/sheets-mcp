@@ -17,15 +17,17 @@ export const UI_EXTENSION = "io.modelcontextprotocol/ui";
 const MAX_ROWS = 120;
 const MAX_COLS = 26;
 /** Cells per preview, so the result stays a size hosts pass through to the widget. */
-const MAX_CELLS = 1500;
+const MAX_CELLS = 2600;
 /**
- * Characters of cell JSON per preview. Some hosts hand the structured result to the model as well as
- * to the widget, so past this the formulas go first (the widget only shows them in its formula bar),
- * then trailing rows.
+ * Characters of cell JSON (and the style table) per preview. Some hosts hand the structured result to the
+ * model as well as to the widget, so past this the formulas go first (the widget only shows them in its
+ * formula bar), then trailing rows. The widget loads the rows that were left out when the user scrolls down.
  */
 const MAX_CELL_CHARS = 36_000;
 /** How far above the view to look for charts that hang down into it. */
 const LEAD_ROWS = 40;
+/** How far below the view to look for more data (past a few blank rows), so the widget knows to offer it. */
+const PROBE_ROWS = 50;
 
 /** A block of cells, 0-based and end-exclusive. */
 export interface Rect {
@@ -61,12 +63,19 @@ export interface PreviewEdit {
  * strike/underline, bg/fg = colors, al/va = alignment, fs = font size (pt), ff = font, w = wraps,
  * bd = borders [top, right, bottom, left] as "width color" (width 1-3, "d" suffix for dashed/dotted),
  * dv = a dropdown ("list") or checkbox ("check"), drawn as Sheets draws them.
- * A cell with nothing but text travels as the bare string.
  */
-export type CompactCell = PreviewCell | string;
-interface PreviewCell {
+interface PreviewCell extends CellStyle {
   v: string;
   f?: string;
+}
+/**
+ * A cell on the wire. Plain text travels as the bare string; anything else as [text, style] or
+ * [text, style, formula], where style indexes the preview's `styles`. Tables repeat the same few
+ * formats, so each one is sent once instead of in every cell.
+ */
+export type WireCell = string | [string, number] | [string, number, string];
+/** A cell's formatting, number flag included (it decides the default alignment). */
+export interface CellStyle {
   n?: true;
   b?: true;
   i?: true;
@@ -122,7 +131,9 @@ export interface Preview {
   start_col: number;
   col_widths: number[];
   row_heights: number[];
-  rows: CompactCell[][];
+  rows: WireCell[][];
+  /** The formats `rows` refer to by index. */
+  styles: CellStyle[];
   /** Merged blocks inside the view, in sheet coordinates. */
   merges?: Rect[];
   /** The header row of a basic filter (0-based row, end-exclusive columns), clipped to the view. */
@@ -141,6 +152,8 @@ export interface Preview {
   /** Cells Claude changed, outlined when there are no edits to replay. */
   highlight?: Rect & { a1: string };
   truncated?: true;
+  /** The sheet has more rows below the view (left out to keep the result small, or past the window). */
+  more_below?: true;
 }
 
 function hex(c?: sheets_v4.Schema$Color | null) {
@@ -245,10 +258,18 @@ function toCell(v?: sheets_v4.Schema$CellData): PreviewCell {
   return cell;
 }
 
-/** Shrink a cell for the wire: plain text travels as a bare string. */
-function compact(cell: PreviewCell): CompactCell {
-  for (const k in cell) if (k !== "v") return cell;
-  return cell.v;
+/** Encodes cells for the wire, collecting each distinct format once. */
+function styleTable() {
+  const styles: CellStyle[] = [];
+  const index = new Map<string, number>();
+  const encode = ({ v, f, ...style }: PreviewCell): WireCell => {
+    const key = JSON.stringify(style);
+    if (key === "{}" && !f) return v;
+    let k = index.get(key);
+    if (k === undefined) index.set(key, (k = styles.push(style) - 1));
+    return f ? [v, k, f] : [v, k];
+  };
+  return { styles, encode };
 }
 
 /** How a chart's value axis writes numbers, read from the number format of its first data cell. */
@@ -401,20 +422,26 @@ async function chartData(
 export async function buildPreview(
   api: sheets_v4.Sheets,
   id: string,
-  sheet: { title: string; sheetId: number },
+  sheet: { title: string; sheetId: number; rowCount?: number | null },
   win: Rect,
   opts: { highlight?: Rect; keep?: Rect; truncated?: boolean; tabs?: PreviewTab[] } = {},
 ): Promise<Preview> {
   const { r0, c0, r1, c1 } = win;
   // Rows just above the view, for their heights: a chart anchored up there can hang down into the view.
   const lead = Math.min(r0, LEAD_ROWS);
+  // And a few below it, in the same read, to tell whether the tab has more to show.
+  const probe = sheet.rowCount ? Math.max(0, Math.min(PROBE_ROWS, sheet.rowCount - r1)) : 0;
   const res = await api.spreadsheets.get({
     spreadsheetId: id,
     // Sheets only returns charts anchored inside the requested ranges, so the lead-in spans the view's columns.
-    ranges: [toA1(sheet.title, r0, c0, r1, c1), ...(lead ? [toA1(sheet.title, r0 - lead, c0, r0, c1)] : [])],
+    ranges: [
+      toA1(sheet.title, r0, c0, r1, c1),
+      ...(lead ? [toA1(sheet.title, r0 - lead, c0, r0, c1)] : []),
+      ...(probe ? [toA1(sheet.title, r1, c0, r1 + probe, c1)] : []),
+    ],
     includeGridData: true,
     fields:
-      "properties(title,defaultFormat/textFormat/fontSize,spreadsheetTheme),sheets(properties(gridProperties(hideGridlines,frozenRowCount,frozenColumnCount)),merges,basicFilter/range," +
+      "properties(title,defaultFormat/textFormat/fontSize,spreadsheetTheme),sheets(properties(gridProperties(rowCount,hideGridlines,frozenRowCount,frozenColumnCount)),merges,basicFilter/range," +
       "charts(chartId,spec(title,fontName,titleTextFormat(fontSize,bold,foregroundColor,foregroundColorStyle),backgroundColor,backgroundColorStyle," +
       "basicChart(chartType,stackedType,headerCount,legendPosition,domains/domain/sourceRange/sources,series(series/sourceRange/sources,type,color,colorStyle))," +
       "pieChart(legendPosition,domain/sourceRange/sources,series/sourceRange/sources,pieHole)),position/overlayPosition)," +
@@ -477,21 +504,26 @@ export async function buildPreview(
   let height = Math.min(fullHeight, Math.max(mustRows + 1, 20, Math.floor(MAX_CELLS / widthOf(fullHeight))));
   const width = widthOf(height);
 
-  let rows: CompactCell[][] = [];
-  for (let r = 0; r < height; r++) rows.push(Array.from({ length: width }, (_, c) => compact(toCell(rowData[r]?.values?.[c]))));
+  const { styles, encode } = styleTable();
+  let rows: WireCell[][] = [];
+  for (let r = 0; r < height; r++) rows.push(Array.from({ length: width }, (_, c) => encode(toCell(rowData[r]?.values?.[c]))));
   // Keep the cell JSON under budget: drop formulas first, then rows from the bottom (never the ones that must show).
   const sizes = rows.map((row) => JSON.stringify(row).length);
-  let total = sizes.reduce((a, b) => a + b, 0);
+  let total = sizes.reduce((a, b) => a + b, 0) + JSON.stringify(styles).length;
   let formulasOmitted = false;
-  if (total > MAX_CELL_CHARS && rows.some((row) => row.some((c) => typeof c !== "string" && c.f))) {
+  if (total > MAX_CELL_CHARS && rows.some((row) => row.some((c) => typeof c !== "string" && c.length === 3))) {
     formulasOmitted = true;
-    rows = rows.map((row) => row.map((c) => (typeof c === "string" || !c.f ? c : compact((({ f, ...rest }) => rest)(c)))));
+    rows = rows.map((row) => row.map((c): WireCell => (typeof c === "string" || c.length === 2 ? c : [c[0], c[1]])));
     rows.forEach((row, r) => (sizes[r] = JSON.stringify(row).length));
-    total = sizes.reduce((a, b) => a + b, 0);
+    total = sizes.reduce((a, b) => a + b, 0) + JSON.stringify(styles).length;
   }
   const minHeight = Math.max(mustRows + 1, 8);
   while (total > MAX_CELL_CHARS && height > minHeight) total -= sizes[--height];
   rows.length = height;
+  // More rows below: some were left out for size, or there's data just past the window. (Without the tab's
+  // size to probe with, data running to the window's last row is the hint.)
+  const below = probe ? (s?.data?.[lead ? 2 : 1]?.rowData ?? []).some((row) => used(row) > 0) : lastRow >= r1 - r0 && r1 < (s?.properties?.gridProperties?.rowCount ?? r1);
+  const moreBelow = height < fullHeight || below;
 
   const merges = (s?.merges ?? [])
     .map((m) => ({ r0: m.startRowIndex ?? 0, c0: m.startColumnIndex ?? 0, r1: m.endRowIndex ?? 0, c1: m.endColumnIndex ?? 0 }))
@@ -520,6 +552,7 @@ export async function buildPreview(
     col_widths: Array.from({ length: width }, (_, c) => colPx(c)),
     row_heights: Array.from({ length: height }, (_, r) => rowPx(r)),
     rows,
+    styles,
     ...(merges.length && { merges }),
     ...(filter && filter.c1 > filter.c0 && { filter }),
     ...(charts.length && { charts }),
@@ -531,6 +564,7 @@ export async function buildPreview(
     ...(res.data.properties?.defaultFormat?.textFormat?.fontSize && { base_font: res.data.properties.defaultFormat.textFormat.fontSize }),
     ...(highlight && { highlight }),
     ...((opts.truncated || height < fullHeight) && { truncated: true as const }),
+    ...(moreBelow && { more_below: true as const }),
   };
 }
 

@@ -465,9 +465,26 @@ interface Activity {
 }
 const activityLog = new Map<string, Activity[]>();
 let activitySeq = 0;
-/** When show_range last ran for each spreadsheet, so tool results can tell Claude whether the user is watching. */
+/** When a preview of each spreadsheet was last opened or polled, whether or not the user could see it. */
 const previewShownAt = new Map<string, number>();
+/**
+ * What previews report about being seen, so tool results can tell Claude whether the user is watching: one in view
+ * (`previewSeenAt`), one in view in a window the user put in the background (`previewBackgroundAt`: they see it when
+ * they come back), and polls from widget builds that can't tell (`previewLegacyAt`). A preview scrolled up the chat,
+ * or left from an earlier request, keeps polling but counts as none of these, so Claude is asked to open a fresh one
+ * where the user is looking.
+ */
+const previewSeenAt = new Map<string, number>();
+const previewBackgroundAt = new Map<string, number>();
+const previewLegacyAt = new Map<string, number>();
+/** When show_range last opened a preview of each spreadsheet. */
+const previewOpenedAt = new Map<string, number>();
+/** How long a preview from an older widget build counts as watched after it last polled. */
 const PREVIEW_FRESH_MS = 20 * 60_000;
+/** A new preview has this long to draw and report before Claude is asked for another, so at most one ask per this. */
+const PREVIEW_MOUNT_MS = 2 * 60_000;
+/** A preview in a background window checks in every 15 s or so, and the browser can stretch that to a minute. */
+const PREVIEW_BACKGROUND_MS = 90_000;
 /** How far back a newly opened preview catches up: this task's steps, not earlier work in the same sheet. */
 const CATCH_UP_MS = 3 * 60_000;
 /**
@@ -478,7 +495,7 @@ const CATCH_UP_MS = 3 * 60_000;
 const previewFrom = new Map<string, number>();
 const followed = new Map<string, number>();
 const TASK_GAP_MS = 10 * 60_000;
-/** A preview that polled this recently is open on the user's screen. */
+/** A preview polls every few seconds: one that reported being in view this recently is still on the user's screen. */
 const PREVIEW_LIVE_MS = 30_000;
 const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "show_recent_sheets", "recent_sheets_update", "create_spreadsheet", "show_range", "preview_updates"]);
 const READS = new Set(["get_spreadsheet_info", "read_range", "read_ranges"]);
@@ -503,7 +520,8 @@ function startRange(tool: string, args: any): string | undefined {
     }
     if (tool === "fill_range") return args.destination;
     if (tool === "format_ranges") return unionA1((args.items ?? []).map((i: any) => i.range));
-    if (tool === "read_ranges") return args.ranges?.[0];
+    // Several ranges on one tab outline as a block while the read runs; across tabs, the first one stands in.
+    if (tool === "read_ranges") return unionA1(args.ranges ?? []) ?? args.ranges?.[0];
     return args.range ?? args.data_range ?? args.source_range;
   } catch {
     return undefined;
@@ -566,12 +584,22 @@ function inAccountFor<T>(id: string, fn: () => Promise<T>) {
   return email ? currentAccount.run(email, fn) : fn();
 }
 
+/**
+ * A spreadsheet with a live preview of its own is the home of some task: in Claude Desktop one server process
+ * serves every open session, so work there may be another conversation's, and a preview elsewhere must not
+ * follow it. Sources Claude only reads for a task (a sheet it copies from, say) have no preview of their own.
+ */
+function hasOwnPreview(id: string) {
+  const now = Date.now();
+  return now - (previewOpenedAt.get(id) ?? -Infinity) < TASK_GAP_MS || now - (previewShownAt.get(id) ?? -Infinity) < PREVIEW_LIVE_MS;
+}
+
 /** Steps in spreadsheets other than `home` that belong to its preview's task, tagged with the spreadsheet they ran in. */
 async function awaySince(home: string, since: number, after: number): Promise<PreviewEdit[]> {
   const before = (followed.get(home) ?? 0) + TASK_GAP_MS;
   const out: PreviewEdit[] = [];
   for (const [id, list] of activityLog) {
-    if (id === home || !list.some((e) => e.seq > since && e.at > after && e.at < before)) continue;
+    if (id === home || hasOwnPreview(id) || !list.some((e) => e.seq > since && e.at > after && e.at < before)) continue;
     try {
       const steps = await inAccountFor(id, () => activitySince(id, since, after, before));
       out.push(...steps.map((e) => ({ ...e, spreadsheet: id, spreadsheet_title: spreadsheetTitles.get(id) ?? "" })));
@@ -588,10 +616,22 @@ function wroteTo(id: string) {
   return (activityLog.get(id) ?? []).some((e) => e.kind === "edit" && !e.pending && !e.failed && e.at >= from);
 }
 
-/** An open preview of another spreadsheet is following Claude's work, so this one needs no preview of its own. */
+/**
+ * Whether the user can watch Claude work in this spreadsheet: "watching" (a preview is in view, was just opened, or
+ * is in view in a background window), "out_of_sight" (previews are open but scrolled away), or "none".
+ */
+function previewState(id: string): "watching" | "out_of_sight" | "none" {
+  const now = Date.now();
+  const within = (m: Map<string, number>, ms: number) => now - (m.get(id) ?? -Infinity) < ms;
+  if (within(previewSeenAt, PREVIEW_LIVE_MS) || within(previewOpenedAt, PREVIEW_MOUNT_MS)) return "watching";
+  if (within(previewBackgroundAt, PREVIEW_BACKGROUND_MS) || within(previewLegacyAt, PREVIEW_FRESH_MS)) return "watching";
+  return within(previewShownAt, PREVIEW_LIVE_MS) ? "out_of_sight" : "none";
+}
+
+/** A preview of another spreadsheet the user can see is following Claude's work, so this one needs no preview of its own. */
 function watchedFromElsewhere(id: string) {
   const now = Date.now();
-  return [...followed].some(([home, at]) => home !== id && now - at < TASK_GAP_MS && now - (previewShownAt.get(home) ?? 0) < PREVIEW_LIVE_MS);
+  return [...followed].some(([home, at]) => home !== id && now - at < TASK_GAP_MS && previewState(home) === "watching");
 }
 
 // ---------- account confirmation ----------
@@ -638,7 +678,7 @@ export function createServer() {
         "If the show_recent_sheets tool is available, call it whenever the user wants to work on a spreadsheet without pasting a link or naming one that matches exactly (\"let's work on my sheets\", \"the budget one\"), and when a name matches several: they pick from the sheets they've worked on, or paste a link. Don't call it again once they've picked. " +
         "Without show_recent_sheets, call find_spreadsheet when they name a sheet: it knows the spreadsheets they've used with Sheets MCP before. Neither can search their Google Drive, so ask for the link if nothing matches. " +
         "When several Google accounts are connected, some tools reply that the account must be confirmed: ask the user which account to use, then call the tool again with `account` set to their choice. Never pick an account for them. " +
-        "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once per task. If you've already started without it, call it right away; it catches up on what you've done. " +
+        "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once for each request from the user, and again when a tool result says the live view is out of their sight. If you've already started without it, call it right away; it catches up on what you've done. " +
         "The live view only draws in the Claude desktop app and claude.ai. When your context indicates the user is on another device (a device hint saying their computer is idle, or a message from a phone or Remote Control), don't call show_range; the tool results then say how to report instead: a short summary in your final reply of the turn (what you did in plain words, the few results that changed as before → after, and one link to the area), since phone apps condense text written between tool calls. Go back to the live view once a message shows they're at the computer again.",
     },
   );
@@ -811,14 +851,17 @@ export function createServer() {
         if (sheetId && !UNLOGGED.has(name)) {
           // Away from this computer, the user is reading on a phone: ask for a Markdown snapshot instead of the live view.
           const away = await deviceHint();
-          const shown = previewShownAt.get(sheetId);
+          const state = previewsOn && !away ? previewState(sheetId) : "watching";
           if (away) {
             content.push({ type: "text" as const, text: away });
-          } else if (previewsOn && (!shown || Date.now() - shown > PREVIEW_FRESH_MS) && !watchedFromElsewhere(sheetId)) {
-            // Nudge Claude to open the live preview, so the user can watch the rest of the work.
+          } else if (state !== "watching" && !watchedFromElsewhere(sheetId)) {
+            // Nudge Claude to open a live preview where the user is looking, so they can watch the rest of the work.
             content.push({
               type: "text" as const,
-              text: "The user can't see what you're doing in this sheet. Call show_range now (the spreadsheet alone is enough; add `range` for the area you're working in): it catches up on what you've done so far, then shows each read and edit live. Call it once per task.",
+              text:
+                state === "out_of_sight"
+                  ? "The live view of this sheet is out of the user's sight (scrolled up the chat, or left from an earlier request), so they can't see this work. Call show_range again now (the spreadsheet alone is enough; add `range` for the area you're working in): a fresh view appears where they're looking, catches up on the last few minutes, then shows each read and edit live."
+                  : "The user can't see what you're doing in this sheet. Call show_range now (the spreadsheet alone is enough; add `range` for the area you're working in): it catches up on what you've done so far, then shows each read and edit live. Call it once for each request from the user.",
             });
           }
         }
@@ -1114,7 +1157,9 @@ export function createServer() {
   async function openPreview(id: string, range?: string, highlight?: string) {
     // Steps logged while this builds are left for the widget's first poll, so none is skipped or sent twice.
     const upTo = activitySeq;
-    const from = Math.max(previewShownAt.get(id) ?? 0, Date.now() - CATCH_UP_MS);
+    // Steps the user already watched aren't replayed; ones a preview only showed out of sight are.
+    const from = Math.max(previewSeenAt.get(id) ?? 0, previewLegacyAt.get(id) ?? 0, Date.now() - CATCH_UP_MS);
+    previewOpenedAt.set(id, Date.now());
     previewFrom.set(id, from);
     followed.set(id, Date.now());
     // Failed steps from before the preview opened aren't worth catching up on. Steps in other spreadsheets
@@ -1140,7 +1185,7 @@ export function createServer() {
     const onTab = own.filter((e) => e.tab === sheet.title && e.rect).map((e) => e.rect!);
     if (!range) rect = fitWindow(rect, onTab);
     const edited = own.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
-    const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, {
+    const preview = await buildPreview(api().sheets, id, { title: sheet.title!, sheetId: sheet.sheetId!, rowCount: sheet.gridProperties?.rowCount }, rect, {
       highlight: outline,
       keep: union(edited),
       truncated,
@@ -1152,7 +1197,7 @@ export function createServer() {
 
   const showRange = tool(
     "show_range",
-    "Show the user a live view of the sheet right in the conversation, so they can watch you work. Call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing anything. The view stays live: each range you read gets a scanning outline, each edit animates in (Claude's cursor moves there and the cells fill in), and it follows you across tabs, including into other spreadsheets you read for this task. Call it once per task, not after every step. If you already started, call it now: it catches up on what you've done.",
+    "Show the user a live view of the sheet right in the conversation, so they can watch you work. Call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing anything. The view stays live: each range you read gets a scanning outline, each edit animates in (Claude's cursor moves there and the cells fill in), and it follows you across tabs, including into other spreadsheets you read for this task. Call it once for each request from the user, not after every step, and again if a tool result says the view is out of the user's sight. If you already started, call it now: it catches up on what you've done.",
     {
       spreadsheet,
       range: z.string().optional().describe("A1 range to show first, e.g. \"Sales!A1:F20\". Default: the first tab, or wherever you've been working"),
@@ -1174,15 +1219,30 @@ export function createServer() {
       peek: z.boolean().default(false).describe("Only build a preview of `range` (the user picked a tab in the preview); no activity is replayed"),
       stay: z.boolean().default(false).describe("The user picked the tab in `range`: keep building that tab rather than following Claude"),
       showing: z.string().optional().describe("The spreadsheet `range` is in, when the preview is showing another one than its own"),
+      view: z
+        .enum(["on_screen", "off_screen", "background"])
+        .optional()
+        .describe("Whether the user can see the preview: in view, scrolled out of view, or in view in a window that's in the background"),
+      heartbeat: z.boolean().default(false).describe("Only report `view` (the window is in the background): no steps, no rebuild"),
     },
-    async ({ spreadsheet, range, highlight, since, initial, peek, stay, showing }) => {
+    async ({ spreadsheet, range, highlight, since, initial, peek, stay, showing, view, heartbeat }) => {
       const id = spreadsheetIdFrom(spreadsheet);
       const shown = showing ? spreadsheetIdFrom(showing) : id;
+      // What the user can see of this preview. Older widget builds don't say; a first fetch comes with show_range.
+      const now = Date.now();
+      if (view === "on_screen") previewSeenAt.set(id, now);
+      else if (view === "background") previewBackgroundAt.set(id, now);
+      else if (!view && !initial) previewLegacyAt.set(id, now);
+      if (heartbeat) {
+        previewShownAt.set(id, now);
+        // Whether Claude is still at work here, so a preview in a background window doesn't go idle meanwhile.
+        return { seq: since, busy: (activityLog.get(id) ?? []).some((e) => e.seq > since) };
+      }
       if (peek && range) {
         const win = previewWindow(range, undefined);
         const preview = await inAccountFor(shown, async () => {
           const sheet = await resolveSheet(shown, win.sheet);
-          return buildPreview(api().sheets, shown, { title: sheet.title!, sheetId: sheet.sheetId! }, win.rect, { truncated: win.truncated, tabs: await previewTabs(shown) });
+          return buildPreview(api().sheets, shown, { title: sheet.title!, sheetId: sheet.sheetId!, rowCount: sheet.gridProperties?.rowCount }, win.rect, { truncated: win.truncated, tabs: await previewTabs(shown) });
         });
         previewShownAt.set(id, Date.now());
         return { preview, seq: Math.max(since, activitySeq) };
@@ -1230,7 +1290,7 @@ export function createServer() {
         const base = target === shown && sheet.title === winTab ? win : { r0: 0, c0: 0, r1: 100, c1: 26 };
         const rect = fitWindow(base, onTab);
         const edited = mine.filter((e) => e.kind === "edit" && !e.pending && e.tab === sheet.title && e.rect).map((e) => e.rect!);
-        return buildPreview(api().sheets, target, { title: sheet.title!, sheetId: sheet.sheetId! }, rect, { keep: union(edited), tabs: await previewTabs(target) });
+        return buildPreview(api().sheets, target, { title: sheet.title!, sheetId: sheet.sheetId!, rowCount: sheet.gridProperties?.rowCount }, rect, { keep: union(edited), tabs: await previewTabs(target) });
       });
       return { edits, seq, preview };
     },

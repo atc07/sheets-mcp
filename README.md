@@ -31,7 +31,7 @@ Claude now has its own [Google Sheets integration](https://claude.com/resources/
 ### Claude Desktop (easiest, no setup)
 
 1. Install [Claude Desktop](https://claude.ai/download) and sign in.
-2. Download **[sheets-mcp.mcpb](https://sheetsmcp.io/downloads/sheets-mcp.mcpb)**.
+2. Download **[Sheets MCP for Claude Desktop](https://sheetsmcp.io/downloads/sheets-mcp.mcpb)** (a `.mcpb` file; see [what's new](https://sheetsmcp.io/changelog)).
 3. Double-click the file, then click **Install** in Claude Desktop.
 
 New to Claude Desktop? Follow the [step-by-step setup guide](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=install#install).

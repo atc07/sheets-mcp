@@ -660,3 +660,5 @@ footer a { text-decoration: none; transition: color 150ms ease; }
 .gdata p { margin: 0; font-size: 14px; color: var(--muted); }
 .gdata a { color: var(--accent); text-underline-offset: 3px; }
 @media (max-width: 640px) { .gdata ul { grid-template-columns: minmax(0, 1fr); } }
+
+.prose h2 small { font-size: 14px; font-weight: 400; color: var(--muted); letter-spacing: 0; }

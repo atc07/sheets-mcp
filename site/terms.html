@@ -25,7 +25,17 @@
     } catch (e) {}
     gtag('js', new Date());
 
-    gtag('config', 'G-RBMZFPWV9Z');
+    // Keep our own visits out of the reports. Dev, staging and bare-IP hosts never send a hit.
+    // Open any page with ?internal=1 once to mark this browser as internal (kept in localStorage,
+    // ?internal=0 clears it); an internal browser sends nothing either.
+    var noTrack = /^(localhost|127\.0\.0\.1|\[::1\]|\d+\.\d+\.\d+\.\d+)$|\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+    try {
+      var im = /[?&]internal=([01])(?:&|$)/.exec(location.search);
+      if (im) localStorage.setItem('sm_internal', im[1]);
+      if (localStorage.getItem('sm_internal') === '1') noTrack = true;
+    } catch (e) {}
+    if (noTrack) console.info('Analytics off for this host/browser');
+    else gtag('config', 'G-RBMZFPWV9Z');
   </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -128,6 +138,7 @@
     <span>© 2026 Collective Theory</span>
     <nav>
       <a href="/">Home</a>
+      <a href="/changelog">What's new</a>
       <a href="/privacy">Privacy</a>
       <a href="mailto:privacy@sheetsmcp.io">Contact</a>
     </nav>

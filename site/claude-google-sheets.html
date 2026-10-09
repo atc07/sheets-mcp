@@ -25,7 +25,17 @@
     } catch (e) {}
     gtag('js', new Date());
 
-    gtag('config', 'G-RBMZFPWV9Z');
+    // Keep our own visits out of the reports. Dev, staging and bare-IP hosts never send a hit.
+    // Open any page with ?internal=1 once to mark this browser as internal (kept in localStorage,
+    // ?internal=0 clears it); an internal browser sends nothing either.
+    var noTrack = /^(localhost|127\.0\.0\.1|\[::1\]|\d+\.\d+\.\d+\.\d+)$|\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+    try {
+      var im = /[?&]internal=([01])(?:&|$)/.exec(location.search);
+      if (im) localStorage.setItem('sm_internal', im[1]);
+      if (localStorage.getItem('sm_internal') === '1') noTrack = true;
+    } catch (e) {}
+    if (noTrack) console.info('Analytics off for this host/browser');
+    else gtag('config', 'G-RBMZFPWV9Z');
   </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -88,9 +98,9 @@
 
   <h2>Step 1: Install Sheets MCP</h2>
   <ol>
-    <li><a href="/downloads/sheets-mcp.mcpb">Download Sheets MCP for Claude Desktop</a>.</li>
-    <li>Double-click the downloaded file. Claude Desktop opens an install screen.</li>
-    <li>Click <b>Install</b>.</li>
+    <li><a href="/downloads/sheets-mcp-1.3.7.mcpb">Download Sheets MCP <span data-version>1.3.7</span> for Claude Desktop</a>.</li>
+    <li>Double-click the downloaded file. Claude Desktop opens an install screen. (Nothing happened? Quit and reopen Claude Desktop, then open the file again.)</li>
+    <li>Click <b>Install</b>, or <b>Update</b> if you have an older version.</li>
   </ol>
   <p>Using Claude Code in a terminal or IDE instead? Run <code>claude mcp add --scope user google-sheets -- npx -y @sheetsmcp/server</code> and start a new session.</p>
 
@@ -136,6 +146,7 @@
     <span>© 2026 Sheets MCP</span>
     <nav>
       <a href="/">Home</a>
+      <a href="/changelog">What's new</a>
       <a href="/terms">Terms</a>
       <a href="mailto:privacy@sheetsmcp.io">Contact</a>
     </nav>

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { gzipSync, constants } from "node:zlib";
 import { createHash } from "node:crypto";
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const [token, dir, site] = process.argv.slice(2);
 const H = { Authorization: `Bearer ${token}`, "x-goog-user-project": "sheets-mcp-k8ajul", "Content-Type": "application/json" };
 const api = "https://firebasehosting.googleapis.com/v1beta1";
@@ -15,13 +16,15 @@ for (const f of readdirSync(dir, { recursive: true }).filter((p) => statSync(`${
   files[`/${f}`] = h; blobs[h] = gz;
 }
 // Hosting doesn't know .mcpb: it serves the compressed variant browsers ask for as text/html, and Safari then
-// names the download "sheets-mcp.mcpb.html". Say what it is, and name the file, so every browser saves it as is.
+// names the download "sheets-mcp.mcpb.html". Say what it is, so every browser saves it under the URL's name
+// (sheets-mcp-<version>.mcpb). The old unversioned link keeps working: it redirects to the current file.
 const v = await call("POST", `${api}/sites/${site}/versions`, {
   config: {
     cleanUrls: true,
+    redirects: [{ glob: "/downloads/sheets-mcp.mcpb", location: `/downloads/sheets-mcp-${pkg.version}.mcpb`, statusCode: 302 }],
     headers: [
       { glob: "/downloads/**", headers: { "Content-Disposition": "attachment" } },
-      { glob: "/downloads/*.mcpb", headers: { "Content-Type": "application/octet-stream", "Content-Disposition": 'attachment; filename="sheets-mcp.mcpb"' } },
+      { glob: "/downloads/*.mcpb", headers: { "Content-Type": "application/octet-stream" } },
       { glob: "**/!(*.@(png|jpg|jpeg|webp|svg|ico|mcpb))", headers: { "Cache-Control": "no-cache" } },
     ],
   },

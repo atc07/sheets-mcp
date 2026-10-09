@@ -110,22 +110,25 @@ npm publishing is automatic: pushing a `v*` tag runs `.github/workflows/publish.
    ```bash
    cp ~/.sheets-mcp/credentials.json oauth-client.json
    ```
-2. Bump the version (this also creates the git tag). Set the same version in both places in `server.json` first, and commit it, so the tag includes it:
+2. Write the release notes: a section at the top of `CHANGELOG.md` and the matching entry in `site/changelog.html`. Commit them.
+3. Bump the version (this also creates the git tag). Set the same version in both places in `server.json` first, and commit it, so the tag includes it:
    ```bash
    npm version patch        # or minor / major
    ```
-3. Build the Claude Desktop extension and deploy the website with the new download:
+   If the working tree has unrelated changes, add `-f`. Tag by hand only with `git tag -a` (annotated): `git push --follow-tags` skips lightweight tags.
+4. Build the Claude Desktop extension and deploy the website with the new download. The pack step names the file `sheets-mcp-<version>.mcpb`, removes older files from `site/downloads/`, and stamps the version into the site's download links and labels, so commit the site files it touched:
    ```bash
    npm run pack:extension
    npm run deploy:site
    ```
-4. Push. The tag triggers the npm publish:
+5. Push. The tag triggers the npm publish:
    ```bash
    git push --follow-tags
    ```
    Watch it under the repo's **Actions** tab. To test the workflow without publishing, run it manually from Actions (the dry-run box is checked by default).
-5. Once the new version is on npm, update the official MCP Registry listing (`io.github.atc07/sheets-mcp`). The registry checks the npm package, so this has to come after step 4:
+6. Once the new version is on npm, update the official MCP Registry listing (`io.github.atc07/sheets-mcp`). The registry checks the npm package, so this has to come after step 4:
    ```bash
    mcp-publisher publish    # first time on a machine: brew install mcp-publisher && mcp-publisher login github
    ```
-6. After a change to the live preview widget, tell users who update to quit and reopen Claude Desktop: it keeps the old widget in memory until restarted.
+7. Publish the GitHub release for the tag with the same notes: `gh release create v1.3.7 --title 1.3.7 --notes-file <(sed -n '/^## 1.3.7/,/^## /p' CHANGELOG.md | sed '$d')`.
+8. After a change to the live preview widget, tell users who update to quit and reopen Claude Desktop: it keeps the old widget in memory until restarted.

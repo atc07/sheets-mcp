@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RBMZFPWV9Z"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    // Analytics on by default; off until the visitor opts in for EU/EEA/UK (Google applies the region list by IP).
+    gtag('consent', 'default', {
+      analytics_storage: 'granted',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+    });
+    gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+      region: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT',
+               'LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE',
+               'IS','LI','NO','GB']
+    });
+    // Replay a choice made in the consent banner (consent.js) on earlier visits.
+    try {
+      var smc = localStorage.getItem('sm_consent');
+      if (smc === 'granted' || smc === 'denied') gtag('consent', 'update', { analytics_storage: smc });
+    } catch (e) {}
+    gtag('js', new Date());
+
+    // Keep our own visits out of the reports. Dev, staging and bare-IP hosts never send a hit.
+    // Open any page with ?internal=1 once to mark this browser as internal (kept in localStorage,
+    // ?internal=0 clears it); an internal browser sends nothing either.
+    var noTrack = /^(localhost|127\.0\.0\.1|\[::1\]|\d+\.\d+\.\d+\.\d+)$|\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+    try {
+      var im = /[?&]internal=([01])(?:&|$)/.exec(location.search);
+      if (im) localStorage.setItem('sm_internal', im[1]);
+      if (localStorage.getItem('sm_internal') === '1') noTrack = true;
+    } catch (e) {}
+    if (noTrack) console.info('Analytics off for this host/browser');
+    else gtag('config', 'G-RBMZFPWV9Z');
+  </script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What's new · Sheets MCP</title>
+  <meta name="description" content="Release notes for Sheets MCP: what changed in each version of the Google Sheets extension for Claude Desktop and Claude Code.">
+  <meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0e0d" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://sheetsmcp.io/changelog">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Sheets MCP">
+  <meta property="og:title" content="What's new · Sheets MCP">
+  <meta property="og:description" content="Release notes for Sheets MCP: what changed in each version.">
+  <meta property="og:url" content="https://sheetsmcp.io/changelog">
+  <meta property="og:image" content="https://sheetsmcp.io/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Sheets MCP: Claude, working in your Google Sheets.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="What's new · Sheets MCP">
+  <meta name="twitter:description" content="Release notes for Sheets MCP: what changed in each version.">
+  <meta name="twitter:image" content="https://sheetsmcp.io/og.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/consent.js" defer></script>
+</head>
+<body>
+<header class="wrap nav">
+  <a class="brand" href="/">
+    <svg viewBox="118 118 356 356" aria-hidden="true">
+<rect x="136" y="136" width="240" height="240" rx="22" fill="var(--logo)" fill-opacity=".12"/>
+<path d="M256 150V362M150 256H362" stroke="var(--logo)" stroke-opacity=".45" stroke-width="10"/>
+<rect x="136" y="136" width="240" height="240" rx="22" fill="none" stroke="var(--logo)" stroke-width="30"/>
+<path id="brand-spark" d="M372 286 C381.03 346.2 397.8 362.97 458 372 C397.8 381.03 381.03 397.8 372 458 C362.97 397.8 346.2 381.03 286 372 C346.2 362.97 362.97 346.2 372 286Z" fill="var(--logo)" stroke="var(--bg)" stroke-width="24" stroke-linejoin="round" paint-order="stroke"/></svg>
+    Sheets MCP
+  </a>
+  <nav class="nav-links">
+    <a href="/#install">Install</a>
+    <a href="/#faq">FAQ</a>
+    <a class="keep" href="/">Home</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <article class="prose">
+  <h1>What's new</h1>
+  <p class="updated">Current version: <span data-version>1.3.7</span> · <a href="/downloads/sheets-mcp-1.3.7.mcpb" download>Download for Claude Desktop</a> · Claude Code users get updates through npm (<code>npx -y @sheetsmcp/server</code> always runs the latest).</p>
+
+  <p>To update Claude Desktop: download the new file and open it. Claude shows the installed version and an <b>Update</b> button; the update can take a minute. After an update that changes the live preview, quit and reopen Claude Desktop so the new preview loads.</p>
+
+  <h2>1.3.7 <small>· October 9, 2026</small></h2>
+  <ul>
+    <li><b>Fixed:</b> in Safari, the download was saved as <code>sheets-mcp.mcpb.html</code> and wouldn't open. The site now serves the file with its proper type, and the file name carries the version (<code>sheets-mcp-1.3.7.mcpb</code>).</li>
+    <li>The site shows which version you're downloading, and this page.</li>
+    <li>Same server as 1.3.6. If you installed 1.3.6 before October 9, update to get the preview fixes below: an earlier build shipped under that version number.</li>
+  </ul>
+
+  <h2>1.3.6 <small>· October 8, 2026</small></h2>
+  <ul>
+    <li><b>Fixed:</b> the live preview could jump to a spreadsheet from another Claude session. In Claude Desktop one Sheets MCP process serves every open session, and a preview followed any session's reads. It now stays with its own task.</li>
+    <li>The preview stays open through Claude's pauses between steps: it folds after a minute of quiet, not 12 seconds.</li>
+    <li>A read of several ranges outlines the whole block while it runs.</li>
+    <li>The preview tells Claude when it has scrolled out of your sight, so Claude opens a fresh one where you're looking. Long tabs load more rows as you scroll down.</li>
+    <li>When your computer is idle (you're on your phone or claude.ai), Claude skips the live view and summarizes its work as text with a link to the sheet.</li>
+    <li>Smaller preview results: each cell format is sent once instead of per cell.</li>
+  </ul>
+
+  <h2>1.3.5 <small>· October 7, 2026</small></h2>
+  <ul>
+    <li><b>Recently worked on:</b> a searchable list of the sheets you've used with Sheets MCP, right in the chat. Search, pin, open a sheet in Google Sheets, or tick several and send them to Claude with a request.</li>
+  </ul>
+
+  <h2>1.3.4 <small>· October 7, 2026</small></h2>
+  <ul>
+    <li>Every tool has a readable title in Claude's tool list, and the server reports its real version.</li>
+  </ul>
+
+  <h2>1.3.3 <small>· October 6, 2026</small></h2>
+  <ul>
+    <li>The live preview follows Claude into other spreadsheets it reads for a task (the source of a copy, say).</li>
+    <li>No outline snap-back between steps; a hidden outline appears in place.</li>
+  </ul>
+
+  <h2>1.3.2 <small>· October 6, 2026</small></h2>
+  <ul>
+    <li>Live preview polish: zoomed-out grid, Claude's tab marked, dropdowns, checkboxes, filters and error cells drawn as Sheets draws them, frozen panes, a tab strip, and the list of steps under the sheet.</li>
+    <li>New charts scroll into view; fewer Sheets reads per refresh; writes past the view grow the grid.</li>
+  </ul>
+
+  <h2>1.3.0 <small>· October 5, 2026</small></h2>
+  <ul>
+    <li><b>Live sheet preview in Claude:</b> watch each read and edit happen in the chat as Claude works.</li>
+    <li>Chart tools (add, update, delete) and pivot tables.</li>
+    <li>Find a spreadsheet by name, from the ones you've used before.</li>
+    <li><code>read_range</code> can return cell formatting ("formats" mode).</li>
+  </ul>
+
+  <h2>1.2.1 <small>· September 24, 2026</small></h2>
+  <ul>
+    <li>Sign-in pages: the Sheets MCP logo in the card, larger.</li>
+  </ul>
+
+  <h2>1.2.0 <small>· September 24, 2026</small></h2>
+  <ul>
+    <li>Get-started prompt and usage instructions for Claude.</li>
+    <li>When several Google accounts are signed in, Claude asks which one to use instead of guessing.</li>
+  </ul>
+
+  <h2>1.1.x <small>· September 24, 2026</small></h2>
+  <ul>
+    <li>First public release: read, write and append cells; formulas, formatting, number formats, borders; sort, filter, dropdowns and checkboxes; merge, freeze, resize; find and replace; undo; several Google accounts.</li>
+  </ul>
+
+  <p class="updated">The full history is on <a href="https://github.com/atc07/sheets-mcp/blob/main/CHANGELOG.md">GitHub</a>.</p>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Sheets MCP</span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="mailto:privacy@sheetsmcp.io">Contact</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

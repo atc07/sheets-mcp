@@ -1,14 +1,16 @@
-// Builds the one-click Claude Desktop extension: site/downloads/sheets-mcp.mcpb
+// Builds the one-click Claude Desktop extension: site/downloads/sheets-mcp-<version>.mcpb, and stamps the version
+// into the site (download links, the version shown next to them, the file name in the install hint).
 // Usage: npm run pack:extension   (needs oauth-client.json; see README "Releasing")
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const out = `${root}build/extension`;
-const target = `${root}site/downloads/sheets-mcp.mcpb`;
 const pkg = JSON.parse(readFileSync(`${root}package.json`, "utf8"));
+const file = `sheets-mcp-${pkg.version}.mcpb`;
+const target = `${root}site/downloads/${file}`;
 
 if (!existsSync(`${root}oauth-client.json`)) {
   console.error("Missing oauth-client.json (the Google OAuth client users sign in with). See README → Releasing.");
@@ -69,3 +71,15 @@ mkdirSync(`${root}site/downloads`, { recursive: true });
 execFileSync("npx", ["mcpb", "validate", `${out}/manifest.json`], { cwd: root, stdio: "inherit" });
 execFileSync("npx", ["mcpb", "pack", out, target], { cwd: root, stdio: "inherit" });
 console.log(`\nBuilt ${target}`);
+
+// The site offers one download, this version's: older files go, and the pages point at the new one.
+for (const f of readdirSync(`${root}site/downloads`)) if (/^sheets-mcp.*\.mcpb$/.test(f) && f !== file) rmSync(`${root}site/downloads/${f}`);
+for (const page of ["index.html", "claude-google-sheets.html", "changelog.html"]) {
+  const path = `${root}site/${page}`;
+  const html = readFileSync(path, "utf8")
+    .replace(/\/downloads\/sheets-mcp[^"'\s]*\.mcpb/g, `/downloads/${file}`)
+    .replace(/(<[^>]*\bdata-version\b[^>]*>)[^<]*/g, `$1${pkg.version}`)
+    .replace(/(<[^>]*\bdata-version-file\b[^>]*>)[^<]*/g, `$1${file}`);
+  writeFileSync(path, html);
+}
+console.log(`Stamped ${pkg.version} into the site pages`);

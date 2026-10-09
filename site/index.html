@@ -25,7 +25,17 @@
     } catch (e) {}
     gtag('js', new Date());
 
-    gtag('config', 'G-RBMZFPWV9Z');
+    // Keep our own visits out of the reports. Dev, staging and bare-IP hosts never send a hit.
+    // Open any page with ?internal=1 once to mark this browser as internal (kept in localStorage,
+    // ?internal=0 clears it); an internal browser sends nothing either.
+    var noTrack = /^(localhost|127\.0\.0\.1|\[::1\]|\d+\.\d+\.\d+\.\d+)$|\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+    try {
+      var im = /[?&]internal=([01])(?:&|$)/.exec(location.search);
+      if (im) localStorage.setItem('sm_internal', im[1]);
+      if (localStorage.getItem('sm_internal') === '1') noTrack = true;
+    } catch (e) {}
+    if (noTrack) console.info('Analytics off for this host/browser');
+    else gtag('config', 'G-RBMZFPWV9Z');
   </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -87,13 +97,13 @@
     <h1>The power tool for Google Sheets in&nbsp;Claude.</h1>
     <p class="lede">Connect your spreadsheets to everything Claude Desktop and Claude Code can do: APIs, files on your computer, your other sheets and scheduled tasks. Free, local and open source.</p>
     <div class="cta">
-        <a class="btn btn-primary" href="/downloads/sheets-mcp.mcpb" download>
+        <a class="btn btn-primary" href="/downloads/sheets-mcp-1.3.7.mcpb" download>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
           Download for Claude Desktop
         </a>
         <a class="btn btn-ghost" href="#developers">Set up Claude Code</a>
     </div>
-    <p class="cta-note">Free. You'll need Claude Desktop or Claude Code, and a Google account.</p>
+    <p class="cta-note">Free. You'll need Claude Desktop or Claude Code, and a Google account. Version <span data-version>1.3.7</span> · <a href="/changelog">What's new</a></p>
       <p class="dl-stat" hidden aria-live="polite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><b data-downloads></b> <span data-downloads-label>downloads</span></p>
 
     <div class="surfaces" role="group" aria-label="Show the demo in">
@@ -284,9 +294,9 @@
           <div class="step-num" aria-hidden="true">2</div>
           <div class="step-body">
             <h3>Install Sheets MCP</h3>
-            <p>Download the file below, then double-click it in your Downloads folder. Claude Desktop opens and asks to install it. Click <b>Install</b>. It works in both the Chat and Code tabs.</p>
-            <a class="btn btn-primary btn-sm" href="/downloads/sheets-mcp.mcpb" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> Download Sheets MCP</a>
-            <p class="hint">Double-clicking didn't work? In Claude Desktop, open <b>Settings → Extensions → Advanced settings → Install Extension…</b> and choose <code>sheets-mcp.mcpb</code> from your Downloads folder.</p>
+            <p>Download the file below, then double-click it in your Downloads folder. Claude Desktop opens and asks to install it. Click <b>Install</b> (or <b>Update</b> if you have an older version; it can take a minute). It works in both the Chat and Code tabs.</p>
+            <a class="btn btn-primary btn-sm" href="/downloads/sheets-mcp-1.3.7.mcpb" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> Download Sheets MCP <span data-version>1.3.7</span></a>
+            <p class="hint">Nothing happened when you opened the file? Quit and reopen Claude Desktop, then open it again. Or in Claude Desktop, open <b>Settings → Extensions → Advanced settings → Install Extension…</b> and choose <code data-version-file>sheets-mcp-1.3.7.mcpb</code> from your Downloads folder.</p>
           </div>
         </li>
 
@@ -579,6 +589,7 @@
     <span>© 2026 Sheets MCP</span>
     <nav>
       <a href="/claude-google-sheets">Setup guide</a>
+      <a href="/changelog">What's new</a>
       <a href="https://github.com/atc07/sheets-mcp">GitHub</a>
       <a href="/privacy">Privacy</a>
       <a href="/terms">Terms</a>

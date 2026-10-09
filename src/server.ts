@@ -594,8 +594,22 @@ function hasOwnPreview(id: string) {
   return now - (previewOpenedAt.get(id) ?? -Infinity) < TASK_GAP_MS || now - (previewShownAt.get(id) ?? -Infinity) < PREVIEW_LIVE_MS;
 }
 
+/**
+ * Previews of different spreadsheets being watched at the same time: one Claude shows one at a time, so this is
+ * several sessions sharing the process (Claude Desktop runs one for all of them). Nothing in the request says which
+ * session a step came from (hosts send a tool-use id, not a session), so while that lasts no preview follows steps
+ * elsewhere, and work in a spreadsheet without a preview isn't taken as watched by one of the others.
+ */
+function concurrentPreviews() {
+  const homes = new Set([...previewSeenAt.keys(), ...previewBackgroundAt.keys(), ...previewOpenedAt.keys(), ...previewLegacyAt.keys()]);
+  let watching = 0;
+  for (const id of homes) if (previewState(id) === "watching" && ++watching > 1) return true;
+  return false;
+}
+
 /** Steps in spreadsheets other than `home` that belong to its preview's task, tagged with the spreadsheet they ran in. */
 async function awaySince(home: string, since: number, after: number): Promise<PreviewEdit[]> {
+  if (concurrentPreviews()) return [];
   const before = (followed.get(home) ?? 0) + TASK_GAP_MS;
   const out: PreviewEdit[] = [];
   for (const [id, list] of activityLog) {
@@ -630,6 +644,7 @@ function previewState(id: string): "watching" | "out_of_sight" | "none" {
 
 /** A preview of another spreadsheet the user can see is following Claude's work, so this one needs no preview of its own. */
 function watchedFromElsewhere(id: string) {
+  if (concurrentPreviews()) return false;
   const now = Date.now();
   return [...followed].some(([home, at]) => home !== id && now - at < TASK_GAP_MS && previewState(home) === "watching");
 }

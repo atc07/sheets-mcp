@@ -2,7 +2,7 @@
 
 What changed in each release of Sheets MCP. The same notes are on [sheetsmcp.io/changelog](https://sheetsmcp.io/changelog) and on each [GitHub release](https://github.com/atc07/sheets-mcp/releases).
 
-## Unreleased
+## 1.3.8 — October 9, 2026
 
 - When previews of different spreadsheets are watched at the same time (several Claude Desktop sessions sharing one Sheets MCP process), no preview follows steps in other spreadsheets, and work in a spreadsheet without a preview is no longer taken as watched by another session's preview. Hosts send no session id with a tool call, so this is the guard for the case the 1.3.6 fix left open.
 

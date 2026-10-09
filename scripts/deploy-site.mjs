@@ -14,7 +14,18 @@ for (const f of readdirSync(dir, { recursive: true }).filter((p) => statSync(`${
   const h = createHash("sha256").update(gz).digest("hex");
   files[`/${f}`] = h; blobs[h] = gz;
 }
-const v = await call("POST", `${api}/sites/${site}/versions`, { config: { cleanUrls: true, headers: [{ glob: "/downloads/**", headers: { "Content-Disposition": "attachment" } }, { glob: "**/!(*.@(png|jpg|jpeg|webp|svg|ico|mcpb))", headers: { "Cache-Control": "no-cache" } }] } });
+// Hosting doesn't know .mcpb: it serves the compressed variant browsers ask for as text/html, and Safari then
+// names the download "sheets-mcp.mcpb.html". Say what it is, and name the file, so every browser saves it as is.
+const v = await call("POST", `${api}/sites/${site}/versions`, {
+  config: {
+    cleanUrls: true,
+    headers: [
+      { glob: "/downloads/**", headers: { "Content-Disposition": "attachment" } },
+      { glob: "/downloads/*.mcpb", headers: { "Content-Type": "application/octet-stream", "Content-Disposition": 'attachment; filename="sheets-mcp.mcpb"' } },
+      { glob: "**/!(*.@(png|jpg|jpeg|webp|svg|ico|mcpb))", headers: { "Cache-Control": "no-cache" } },
+    ],
+  },
+});
 const p = await call("POST", `${api}/${v.name}:populateFiles`, { files });
 for (const h of p.uploadRequiredHashes ?? []) {
   const r = await fetch(`${p.uploadUrl}/${h}`, { method: "POST", headers: { Authorization: H.Authorization, "x-goog-user-project": H["x-goog-user-project"], "Content-Type": "application/octet-stream" }, body: blobs[h] });

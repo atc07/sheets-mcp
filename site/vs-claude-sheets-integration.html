@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RBMZFPWV9Z"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    // Analytics on by default; off until the visitor opts in for EU/EEA/UK (Google applies the region list by IP).
+    gtag('consent', 'default', {
+      analytics_storage: 'granted',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+    });
+    gtag('consent', 'default', {
+      analytics_storage: 'denied',
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+      region: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT',
+               'LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE',
+               'IS','LI','NO','GB']
+    });
+    // Replay a choice made in the consent banner (consent.js) on earlier visits.
+    try {
+      var smc = localStorage.getItem('sm_consent');
+      if (smc === 'granted' || smc === 'denied') gtag('consent', 'update', { analytics_storage: smc });
+    } catch (e) {}
+    gtag('js', new Date());
+
+    // Keep our own visits out of the reports. Dev, staging and bare-IP hosts never send a hit.
+    // Open any page with ?internal=1 once to mark this browser as internal (kept in localStorage,
+    // ?internal=0 clears it); an internal browser sends nothing either.
+    var noTrack = /^(localhost|127\.0\.0\.1|\[::1\]|\d+\.\d+\.\d+\.\d+)$|\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+    try {
+      var im = /[?&]internal=([01])(?:&|$)/.exec(location.search);
+      if (im) localStorage.setItem('sm_internal', im[1]);
+      if (localStorage.getItem('sm_internal') === '1') noTrack = true;
+    } catch (e) {}
+    if (noTrack) console.info('Analytics off for this host/browser');
+    else gtag('config', 'G-RBMZFPWV9Z');
+  </script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sheets MCP vs Claude&#x27;s Google Sheets integration: which to use · Sheets MCP</title>
+  <meta name="description" content="Claude&#x27;s built-in Google Sheets sidebar edits the sheet you have open on paid plans. Sheets MCP is free and connects your sheets to scripts, APIs, other sheets and schedules. How to choose.">
+  <meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0e0d" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://sheetsmcp.io/vs-claude-sheets-integration">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Sheets MCP">
+  <meta property="og:title" content="Sheets MCP vs Claude&#x27;s Google Sheets integration: which to use · Sheets MCP">
+  <meta property="og:description" content="Claude&#x27;s built-in Google Sheets sidebar edits the sheet you have open on paid plans. Sheets MCP is free and connects your sheets to scripts, APIs, other sheets and schedules. How to choose.">
+  <meta property="og:url" content="https://sheetsmcp.io/vs-claude-sheets-integration">
+  <meta property="og:image" content="https://sheetsmcp.io/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Sheets MCP: Claude, working in your Google Sheets.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Sheets MCP vs Claude&#x27;s Google Sheets integration: which to use · Sheets MCP">
+  <meta name="twitter:description" content="Claude&#x27;s built-in Google Sheets sidebar edits the sheet you have open on paid plans. Sheets MCP is free and connects your sheets to scripts, APIs, other sheets and schedules. How to choose.">
+  <meta name="twitter:image" content="https://sheetsmcp.io/og.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/consent.js" defer></script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is Claude's Google Sheets integration free?", "acceptedAnswer": {"@type": "Answer", "text": "No. It's in beta for Claude Pro, Max, Team and Enterprise plans. Sheets MCP is free and open source, and works on the free Claude plan in Claude Desktop."}}, {"@type": "Question", "name": "Can I use both?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Use Claude's sidebar for quick edits in the sheet you have open, and Sheets MCP when the job involves scripts, APIs, files, several sheets or a schedule."}}, {"@type": "Question", "name": "Can Claude refresh a Google Sheet on a schedule?", "acceptedAnswer": {"@type": "Answer", "text": "With Sheets MCP, yes: a Claude Desktop scheduled task can refresh a sheet every morning, as long as your computer is on. Claude's built-in integration can't create triggers or scheduled refreshes."}}, {"@type": "Question", "name": "Can Claude work across several spreadsheets at once?", "acceptedAnswer": {"@type": "Answer", "text": "Sheets MCP reads and writes as many spreadsheets as you point it at, and can create new ones. The built-in integration works on the file it's opened in, and sees other Drive files only if you turn on the Google Drive connector."}}, {"@type": "Question", "name": "Does Sheets MCP see my whole Google Drive?", "acceptedAnswer": {"@type": "Answer", "text": "No. It asks Google for access to spreadsheets only. Your sign-in stays on your computer and there's no Sheets MCP server in between. Data Claude reads becomes part of your Claude conversation, as with any Claude tool."}}, {"@type": "Question", "name": "Does Sheets MCP work on claude.ai or the Claude phone app?", "acceptedAnswer": {"@type": "Answer", "text": "Not directly. It runs on your computer, in the Claude desktop app on Mac and Windows and in Claude Code."}}]}</script>
+</head>
+<body>
+<header class="wrap nav">
+  <a class="brand" href="/">
+    <svg viewBox="118 118 356 356" aria-hidden="true">
+<rect x="136" y="136" width="240" height="240" rx="22" fill="var(--logo)" fill-opacity=".12"/>
+<path d="M256 150V362M150 256H362" stroke="var(--logo)" stroke-opacity=".45" stroke-width="10"/>
+<rect x="136" y="136" width="240" height="240" rx="22" fill="none" stroke="var(--logo)" stroke-width="30"/>
+<path id="brand-spark" d="M372 286 C381.03 346.2 397.8 362.97 458 372 C397.8 381.03 381.03 397.8 372 458 C362.97 397.8 346.2 381.03 286 372 C346.2 362.97 362.97 346.2 372 286Z" fill="var(--logo)" stroke="var(--bg)" stroke-width="24" stroke-linejoin="round" paint-order="stroke"/></svg>
+    Sheets MCP
+  </a>
+  <nav class="nav-links">
+    <a href="/#install">Install</a>
+    <a href="/#faq">FAQ</a>
+    <a class="keep" href="/">Home</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <article class="prose">
+  <h1>Sheets MCP or Claude's built-in Google Sheets integration?</h1>
+  <p class="updated">Updated October 2026 · checked against <a href="https://support.claude.com/en/articles/16951679-use-claude-in-google-docs-sheets-and-slides" rel="noopener">Anthropic's help article</a></p>
+
+  <p>Both let Claude edit your Google Sheets. Claude's own integration is a sidebar inside Google Sheets, Docs and Slides, in beta on paid Claude plans. <a href="/">Sheets MCP</a> is a free, open-source add-on for Claude Desktop and Claude Code that connects your sheets to everything else Claude can do: scripts, APIs, files on your computer, your other spreadsheets and schedules. They suit different jobs, and you can use both.</p>
+  </article>
+  <div class="cmp-wrap"><table class="cmp"><thead><tr><th></th><th class="us">Sheets MCP</th><th>Claude's built-in integration</th></tr></thead><tbody><tr><th>Best for</th><td class="us">Work that reaches beyond one sheet: scripts, APIs, files, other sheets, schedules</td><td>Quick edits inside the sheet you have open</td></tr><tr><th>Price</th><td class="us">Free and open source; works on the free Claude plan in Claude Desktop</td><td>Beta on Claude Pro, Max, Team and Enterprise</td></tr><tr><th>Where you use it</th><td class="us">Claude Desktop (Chat and Code tabs) and Claude Code, on Mac and Windows</td><td>A sidebar inside Google Sheets, Docs and Slides, in Chrome, Edge or Safari</td></tr><tr><th>Other spreadsheets</th><td class="us">Reads and writes as many as you ask, and creates new ones</td><td>The file it&#x27;s opened in; other Drive files only with the Google Drive connector, off by default</td></tr><tr><th>Scripts, APIs and files</th><td class="us">In Claude Code or the Desktop Code tab, Claude runs scripts and API calls, reads local files, and writes the results to your sheet</td><td>Doesn&#x27;t make network requests from your file</td></tr><tr><th>Schedules</th><td class="us">A Claude Desktop scheduled task can refresh a sheet daily (computer on)</td><td>Can&#x27;t create triggers or scheduled refreshes</td></tr><tr><th>Making changes</th><td class="us">Writes directly, checks every write for broken formulas, and &quot;undo that&quot; puts values back</td><td>Asks before each edit by default, or accepts all edits if you choose</td></tr><tr><th>Google accounts</th><td class="us">Several in one conversation, e.g. read from work, write to personal</td><td>The account the file is open in</td></tr><tr><th>Setup</th><td class="us">One-click extension or one command. Google shows an &quot;unverified app&quot; screen once at sign-in</td><td>Install from the Google Workspace Marketplace; admins can install it for an organization</td></tr><tr><th>Code</th><td class="us">Open source (MIT)</td><td>Anthropic&#x27;s product</td></tr></tbody></table></div>
+  <article class="prose">
+  <h2>Use Claude's built-in integration when</h2>
+  <ul>
+    <li>You're on a paid Claude plan.</li>
+    <li>The job is inside the one sheet you have open: a formula, a cleanup, a quick summary.</li>
+    <li>You'd rather work from inside Google Sheets than from the Claude app.</li>
+  </ul>
+
+  <h2>Use Sheets MCP when</h2>
+  <ul>
+    <li>The data comes from a script, an API or files on your computer.</li>
+    <li>The answer lives across several spreadsheets, or several Google accounts.</li>
+    <li>A sheet should keep itself up to date on a schedule.</li>
+    <li>You work in Claude Code, or you're on the free Claude plan.</li>
+    <li>You want spreadsheets-only access with nothing in between you and Google.</li>
+  </ul>
+
+  <h2>Three jobs the built-in integration isn't built for</h2>
+  <p>Real runs with made-up data.</p>
+
+  <h3>Pull data from an API, then keep it updated</h3>
+  <p>"Pull our Stripe charges for the last 30 days into a new Daily revenue tab, with a total and a chart. Then keep it updated every morning at 7." Claude writes a small script, runs it, fills in 30 days of gross, refunds and net, charts it, and sets up a 7am task that adds each new day.</p>
+
+  <h3>Answer a question that spans three spreadsheets</h3>
+  <p>"Here are our Sales, Marketing Spend and Support Tickets sheets. Which region gives us the best return on marketing, and is any region's support load a warning sign?" Claude reads all three, about 1,300 rows, joins them by region and builds a new spreadsheet: one region returned $8.40 of new revenue per marketing dollar, while another cost $1,000 per customer and got 7.1 support tickets each, twice any other region.</p>
+
+  <h3>Reconcile a sheet against files on your computer</h3>
+  <p>"Reconcile September: check every invoice marked Paid against the Stripe export and the bank statement in my Downloads." Claude reads the sheet and both CSVs, ties every payout to the bank, and writes a Mismatches tab: three invoices to look at, with what's wrong with each.</p>
+
+  <h2>Common questions</h2>
+  <h3>Is Claude&#x27;s Google Sheets integration free?</h3>
+  <p>No. It&#x27;s in beta for Claude Pro, Max, Team and Enterprise plans. Sheets MCP is free and open source, and works on the free Claude plan in Claude Desktop.</p>
+  <h3>Can I use both?</h3>
+  <p>Yes. Use Claude&#x27;s sidebar for quick edits in the sheet you have open, and Sheets MCP when the job involves scripts, APIs, files, several sheets or a schedule.</p>
+  <h3>Can Claude refresh a Google Sheet on a schedule?</h3>
+  <p>With Sheets MCP, yes: a Claude Desktop scheduled task can refresh a sheet every morning, as long as your computer is on. Claude&#x27;s built-in integration can&#x27;t create triggers or scheduled refreshes.</p>
+  <h3>Can Claude work across several spreadsheets at once?</h3>
+  <p>Sheets MCP reads and writes as many spreadsheets as you point it at, and can create new ones. The built-in integration works on the file it&#x27;s opened in, and sees other Drive files only if you turn on the Google Drive connector.</p>
+  <h3>Does Sheets MCP see my whole Google Drive?</h3>
+  <p>No. It asks Google for access to spreadsheets only. Your sign-in stays on your computer and there&#x27;s no Sheets MCP server in between. Data Claude reads becomes part of your Claude conversation, as with any Claude tool.</p>
+  <h3>Does Sheets MCP work on claude.ai or the Claude phone app?</h3>
+  <p>Not directly. It runs on your computer, in the Claude desktop app on Mac and Windows and in Claude Code.</p>
+
+  <h2>Try Sheets MCP</h2>
+  <p><a href="/downloads/sheets-mcp-1.3.9.mcpb">Download Sheets MCP <span data-version>1.3.9</span> for Claude Desktop</a>, then double-click the file. Using Claude Code? Run <code>claude mcp add --scope user google-sheets -- npx -y @sheetsmcp/server</code>. The <a href="/claude-google-sheets">setup guide</a> walks through it in about two minutes.</p>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Sheets MCP</span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/changelog">What's new</a>
+      <a href="/terms">Terms</a>
+      <a href="mailto:privacy@sheetsmcp.io">Contact</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

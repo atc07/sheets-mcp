@@ -57,3 +57,21 @@
   } catch {}
   if (euLike && !decided) show();
 })();
+
+// Install intent, so GA4 can count it per page and per source: the Claude Desktop extension
+// download, and copying an install command (Claude Code).
+(() => {
+  document.addEventListener("click", (e) => {
+    if (typeof gtag !== "function") return;
+    const dl = e.target.closest?.('a[href*=".mcpb"]');
+    if (dl) {
+      gtag("event", "extension_download", { transport_type: "beacon" });
+      return;
+    }
+    const copy = e.target.closest?.("button.copy");
+    if (copy) {
+      const cmd = copy.parentElement?.querySelector("pre")?.textContent?.trim() ?? "";
+      gtag("event", "install_command_copy", { command: cmd.slice(0, 60) });
+    }
+  });
+})();

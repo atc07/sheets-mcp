@@ -91,7 +91,7 @@ In Claude Desktop, Claude opens a live preview of your sheet in the chat while i
 
 After updating Sheets MCP, quit and reopen Claude Desktop so it loads the new preview.
 
-Following along from your phone (Remote Control, or a synced chat)? The preview only draws on the computer, so when your computer has been idle for a minute or more, Claude knows you're elsewhere and shows each change as a small table in its reply instead, with a link that opens the same cells in the Sheets app.
+The preview draws in the Claude desktop app. If you follow a session from your phone with Remote Control, Sheets MCP keeps working on your computer and the preview is there when you're back at it.
 
 [Watch it in action on sheetsmcp.io →](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=live-preview)
 

@@ -569,6 +569,15 @@ export async function buildPreview(
 }
 
 /** A short line for the model, so it knows what the user is looking at without the grid being repeated. */
+/** What start_walkthrough tells Claude: the user is watching, and what to do next. */
+export function walkthroughStarted(title: string, planned: number) {
+  return (
+    `The user now sees a walkthrough view, "${title}", with a progress bar that moves as you read. ` +
+    `Read what you need now (get_spreadsheet_info, read_range…): each read shows on the sheet. Then call add_walkthrough_point once per point, in order (about ${planned}), with \`last\` on the final one; the user's list fills in as you go, and the walkthrough plays once the last point lands. ` +
+    `Don't call show_range for this request. Nothing is written to the sheet.`
+  );
+}
+
 export function previewSummary(p: Preview, replayed: number) {
   const shown = toA1(p.tab, p.start_row, p.start_col, p.start_row + p.rows.length, p.start_col + p.col_widths.length);
   return (

@@ -89,6 +89,8 @@ Sheets MCP keeps a list of the spreadsheets you've used with it, on your compute
 
 In Claude Desktop, Claude opens a live preview of your sheet in the chat while it works. You see each range it reads and each change it makes as it happens, charts included, and the preview folds away when Claude is done. **Open in Sheets** jumps to the same cells in Google Sheets.
 
+Ask Claude to explain a sheet ("walk me through how this model works") and the preview becomes a walkthrough: a progress bar while Claude reads, then Claude's explanation played on the sheet one point at a time. Claude's cursor outlines the cells for each point and types a short note beside them, and the walkthrough waits for you to click **Next**. Type a question about the point in the walkthrough and Claude answers there, stepping through the cells it's talking about. It's drawn in the preview only, so nothing changes in the sheet and collaborators see nothing.
+
 After updating Sheets MCP, quit and reopen Claude Desktop so it loads the new preview.
 
 The preview draws in the Claude desktop app. If you follow a session from your phone with Remote Control, Sheets MCP keeps working on your computer and the preview is there when you're back at it.

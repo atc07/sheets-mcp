@@ -189,11 +189,94 @@ td.typed { animation: typed 320ms var(--ease) both; }
 .note { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 8px 4px 12px; font-size: 12.5px; color: var(--muted); }
 .note > svg { width: 15px; height: 15px; color: var(--faint); flex: none; }
 .note .sp { flex: 1; }
+/* ---------- walkthrough: the sheet on the left, the points on the right ---------- */
+.card.wt { container: card / inline-size; }
+.card.wt .live, .card.wt .foot > .step, .card.wt .foot > .count, .card.wt .foot > .btn:not(.wtb) { display: none; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 380px; }
+.split > .main { min-width: 0; }
+/* The panel takes the sheet's height (its list scrolls), so a long list doesn't stretch the card. */
+.wtp { position: relative; min-width: 0; box-shadow: inset 1px 0 0 var(--grid); }
+.wtin { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.wth { flex: none; padding: 12px 14px 11px 15px; box-shadow: inset 0 -1px 0 var(--grid); }
+.wtt { font-weight: 600; font-size: 13.5px; line-height: 1.3; }
+.wts { display: flex; align-items: center; gap: 8px; min-height: 17px; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.wts .lbl { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wts .pct { margin-left: auto; flex: none; font-variant-numeric: tabular-nums; }
+.wtbar { position: relative; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.wtbar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 2px; background: var(--claude); overflow: hidden; transition: width 600ms var(--ease), background-color 300ms ease; }
+.wtbar.work > i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent); animation: shine 1.4s linear infinite; }
+.wtbar.ready > i { background: var(--accent); }
+@keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.wtl { flex: 1; min-height: 0; list-style: none; margin: 0; padding: 8px; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
+.wtr { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 9px; padding: 8px 9px 8px 7px; border-radius: 10px; cursor: pointer; transition: background-color 200ms ease, opacity 200ms ease; }
+.wtr:hover { background: rgba(128,128,128,.09); }
+.wtr.new { animation: rowin 320ms var(--ease) both; }
+.wtn { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font: 600 11px/1 var(--font); color: var(--muted); box-shadow: inset 0 0 0 1px var(--grid); }
+.wtr b { display: block; font-weight: 600; font-size: 12.5px; line-height: 1.35; padding-top: 1px; }
+.wtr code { display: block; font: 11px/1.45 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wtnote { display: none; margin: 6px 0 1px; font-size: 12.5px; line-height: 1.5; }
+.wtr.todo { opacity: .55; }
+.wtr.seen .wtn { font-size: 0; color: var(--surface); background: var(--accent); box-shadow: none; }
+.wtr.seen .wtn::before { content: ""; width: 7px; height: 3.5px; border: solid currentColor; border-width: 0 0 1.8px 1.8px; transform: translateY(-1px) rotate(-45deg); }
+.wtr.now { background: var(--claude-soft); box-shadow: inset 3px 0 0 var(--claude); }
+.wtr.now .wtn { color: #fff; background: var(--claude); box-shadow: none; }
+.wtr.now .wtnote { display: block; animation: fadein 320ms ease both; }
+.wtr.fresh .wtn { color: var(--claude); box-shadow: inset 0 0 0 1.5px var(--claude); }
+/* An answer's steps sit under the point they answer, indented, numbered 3a, 3b… */
+.wtr.ans { margin-left: 16px; }
+.wtr.ans .wtn { width: auto; min-width: 20px; padding: 0 4px; border-radius: 10px; font-size: 10.5px; }
+.wtr.ans.seen .wtn { font-size: 0; width: 20px; padding: 0; }
+/* The point Claude is writing now: a placeholder row that shimmers until it lands. */
+.wtr.ghost { cursor: default; }
+.wtr.ghost:hover { background: none; }
+.wtr.ghost .wtn { color: var(--faint); box-shadow: inset 0 0 0 1px var(--grid); }
+.wtr.ghost i { display: block; height: 9px; margin: 5px 0 0; border-radius: 4px; background: var(--surface-2); animation: shimmer 1.4s ease-in-out infinite; }
+.wtr.ghost i + i { width: 55%; animation-delay: .15s; }
+/* Questions about a point: the user's under the note, Claude's answer below it. */
+.wtthread { display: grid; gap: 6px; margin-top: 8px; }
+.wtthread:empty { display: none; }
+.wtr.seen .wtthread, .wtr.todo .wtthread { opacity: 1; }
+.wtq { justify-self: end; max-width: 92%; padding: 6px 9px; border-radius: 10px 10px 3px 10px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--grid); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; animation: rowin 260ms var(--ease) both; }
+.wta { font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; animation: fadein 320ms ease both; }
+.wta .who { display: block; font-size: 11px; font-weight: 600; color: var(--claude); margin-bottom: 1px; }
+.wta.wait { color: var(--muted); }
+.wta.wait i { display: inline-block; width: 4px; height: 4px; margin-left: 3px; border-radius: 50%; background: currentColor; animation: pulse 1.2s ease-in-out infinite; }
+.wta.wait i + i { animation-delay: .2s; } .wta.wait i + i + i { animation-delay: .4s; }
+.wta .play { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 5px 9px; border: 0; border-radius: 8px; background: var(--claude-soft); color: var(--claude); font: 600 11.5px/1 var(--font); cursor: pointer; }
+.wta .cells { display: inline-block; margin-top: 4px; font: 11px/1.4 var(--mono); color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; }
+/* The question box sits at the bottom of the panel. */
+.wtask { flex: none; display: flex; align-items: flex-end; gap: 6px; padding: 8px; box-shadow: inset 0 1px 0 var(--grid); }
+.wtask textarea { flex: 1; min-width: 0; resize: none; max-height: 96px; padding: 7px 9px; border: 0; border-radius: 9px; outline: none; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--grid); color: var(--fg); font: 12.5px/1.4 var(--font); }
+.wtask textarea:focus { box-shadow: inset 0 0 0 1.5px var(--claude); }
+.wtask .btn { padding: 8px 11px; }
+.wtf { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wtc { min-width: 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wtf .sp { flex: 1; }
+.btn.pri { color: #fff; background: var(--claude); }
+.btn.pri:hover { box-shadow: none; filter: brightness(1.07); }
+.btn:disabled { opacity: .45; cursor: default; filter: none; }
+/* The callout Claude types next to the range (inside the zoomed grid, so sizes are divided by the zoom). */
+.callout { position: absolute; z-index: 7; left: 0; top: 0; box-sizing: border-box; max-width: calc(300px / var(--zoom, 1)); padding: calc(6px / var(--zoom, 1)) calc(10px / var(--zoom, 1)); border-radius: calc(9px / var(--zoom, 1));
+  background: var(--claude); color: #fff; font: 500 calc(12.5px / var(--zoom, 1))/1.42 var(--font); white-space: normal; box-shadow: 0 6px 18px -6px rgba(0,0,0,.35); cursor: pointer; opacity: 0; pointer-events: none; transition: opacity 220ms ease; }
+.callout.on { opacity: 1; pointer-events: auto; }
+.callout.typing::after { content: ""; display: inline-block; width: calc(1.5px / var(--zoom, 1)); height: 1em; margin-left: 1px; vertical-align: -0.15em; background: currentColor; animation: blink .9s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+/* Narrow: the panel goes above the sheet and shows only the point that matters now. */
+@container card (max-width: 700px) {
+  .split { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .wtp { order: -1; box-shadow: inset 0 -1px 0 var(--grid); }
+  .wtin { position: static; }
+  .wtl { padding: 4px 8px 8px; }
+  .wtr:not(.now):not(.fresh):not(.ghost) { display: none; }
+  .wtr.ghost:not(:only-child) { display: none; }
+  .wtask textarea { font-size: 16px; } /* no zoom-on-focus on phones */
+}
 @media (prefers-reduced-motion: reduce) {
   .cur, .scroll, .body { transition: none; scroll-behavior: auto; }
   .skel .row > i { animation: none; }
   .bk .aid, .tb .aid,
-  td.typed, td.flash::after, .live i, .cur .band::before, .gridwrap.enter, .chart *, .srow { animation: none !important; }
+  td.typed, td.flash::after, .live i, .cur .band::before, .gridwrap.enter, .chart *, .srow, .wtr, .wtnote, .wtbar > i::after, .wtr.ghost i, .wtq, .wta, .wta.wait i { animation: none !important; }
+  .wtbar > i, .callout { transition: none; }
 }
 </style>
 </head>
@@ -427,7 +510,8 @@ td.typed { animation: typed 320ms var(--ease) both; }
     const cur = el("div", "cur");
     cur.append(el("span", "", "Claude"), el("div", "band"));
     const charts = el("div", "charts");
-    wrap.append(table, charts, cur);
+    const callout = el("div", "callout");
+    wrap.append(table, charts, cur, callout);
     wrap.style.zoom = ZOOM;
     wrap.style.setProperty("--zoom", ZOOM);
     scroll.append(wrap);
@@ -462,11 +546,19 @@ td.typed { animation: typed 320ms var(--ease) both; }
       b.addEventListener("click", () => (aiAt && aiAt.book === p.spreadsheet_id && t.title === aiAt.tab ? focusClaude() : switchTab(t.title)));
       tabs.append(b);
     }
-    inner.append(fbar, scroll, ...(hasStrip ? [tabs] : []), steps);
+    if (WT) {
+      // A walkthrough: the points sit to the right of the sheet (the steps list makes way for them).
+      const main = el("div", "main");
+      main.append(fbar, scroll, ...(hasStrip ? [tabs] : []));
+      inner.classList.add("split");
+      inner.append(main, WT.panel);
+      foot.append(WT.foot);
+    } else inner.append(fbar, scroll, ...(hasStrip ? [tabs] : []), steps);
     fold.append(inner);
     card.classList.toggle("done", done);
+    card.classList.toggle("wt", !!WT);
     card.append(bar, fold, foot);
-    ui = { live, ref, val, scroll, wrap, cells, cur, step, count, toggle, head, charts, covered, frozen, steps, tabs, title, more, books: null, bookCount: 0, selected: null };
+    ui = { live, ref, val, scroll, wrap, cells, cur, callout, step, count, toggle, head, charts, covered, frozen, steps, tabs, title, more, books: null, bookCount: 0, selected: null };
     renderBooks();
     renderSteps();
     markClaudeTab();
@@ -1202,16 +1294,22 @@ td.typed { animation: typed 320ms var(--ease) both; }
 
   async function tick() {
     if (!polling) return;
+    if (WT && WT.done && WT.started && !waitingForAnswer()) return stopPolling(); // nothing left to wait for
     const idle = Date.now() - lastEditAt;
     if (idle > IDLE_STOP) return stopPolling();
     if (document.hidden) { await heartbeat(); return schedule(HIDDEN); }
     try {
-      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(P.spreadsheet_id !== home.id && { showing: P.spreadsheet_id }), range: P.window, since: seq, view: view(), ...(pinned && { stay: true }), ...(account && { account }) } });
+      const stepping = !!(WT && WT.started);
+      const res = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, ...(P.spreadsheet_id !== home.id && { showing: P.spreadsheet_id }), range: P.window, since: seq, view: view(), ...((pinned || stepping) && { stay: true }), ...(WT && { wt: WT.id }), ...(account && { account }) } });
       const u = res && res.structuredContent;
       if (!u || res.isError) throw new Error("bad update");
       failures = 0;
       if (u.seq > seq) seq = u.seq;
-      if (u.edits && u.edits.length) {
+      if (u.walkthrough) onWT(u.walkthrough);
+      if (stepping) {
+        // The user is stepping through the walkthrough: Claude's reads still keep the view alive, but don't move the grid.
+        if (u.edits && u.edits.length) lastEditAt = Date.now();
+      } else if (u.edits && u.edits.length) {
         lastEditAt = Date.now();
         enqueue(u.edits, u.preview ? inflate(u.preview) : null);
       } else if (u.preview) {
@@ -1231,10 +1329,414 @@ td.typed { animation: typed 320ms var(--ease) both; }
   // knows it's still here (and whether it's in view), and while Claude keeps working the preview doesn't go idle.
   async function heartbeat() {
     try {
-      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, range: P.window, since: seq, view: view(), heartbeat: true, ...(account && { account }) } });
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, range: P.window, since: seq, view: view(), heartbeat: true, ...(WT && { wt: WT.id }), ...(account && { account }) } });
       if (r && !r.isError && r.structuredContent && r.structuredContent.busy) lastEditAt = Date.now();
+      if (r && !r.isError && r.structuredContent && r.structuredContent.walkthrough) onWT(r.structuredContent.walkthrough);
     } catch {}
   }
+
+  // ---------- walkthrough ----------
+  // start_walkthrough opens the preview with a panel to the right of the sheet. While Claude reads, the panel shows a
+  // progress bar and the points as Claude adds them; then it plays them one at a time: Claude's cursor goes to the
+  // range, outlines it, types a short callout beside it, and waits for Next. All of it is drawn here only.
+  let WT = null;
+  let canMessage = false, canContext = false;
+  const wtButton = (text) => { const b = el("button", "btn wtb", text); b.type = "button"; return b; };
+  function initWT(w) {
+    WT = { id: w.id, title: w.title, planned: w.planned, points: [], done: false, info: w, offset: 0, started: false, finished: false, at: -1, nav: 0, cache: new Map(), fetching: new Set() };
+    keepOpen = true; // stays open while the user steps through it (the live view folds once Claude goes quiet)
+    const panel = el("aside", "wtp"), box = el("div", "wtin"), head = el("div", "wth"), stage = el("div", "wts"), bar = el("div", "wtbar");
+    const label = el("span", "lbl"), pct = el("span", "pct"), list = el("ol", "wtl");
+    stage.append(label, pct);
+    bar.append(el("i"));
+    head.append(el("div", "wtt", w.title), stage, bar);
+    // Ask about the point shown: the question goes to the chat as the user's message, and Claude's answer comes back here.
+    const ask = el("form", "wtask"), input = el("textarea"), send = wtButton("Ask");
+    input.rows = 1;
+    input.placeholder = "Ask about this point…";
+    input.setAttribute("aria-label", "Ask Claude about this point");
+    send.type = "submit";
+    send.classList.add("pri");
+    ask.append(input, send);
+    ask.addEventListener("submit", (e) => { e.preventDefault(); askAbout(); });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); askAbout(); } });
+    input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(96, input.scrollHeight) + "px"; });
+    box.append(head, list, ask);
+    panel.append(box);
+    const foot = el("div", "wtf"), count = el("span", "wtc");
+    const back = wtButton("Back"), next = wtButton("Next");
+    next.classList.add("pri");
+    back.title = "Previous point (←)";
+    back.addEventListener("click", () => goTo(WT.at - 1));
+    next.addEventListener("click", onNext);
+    foot.append(count, el("span", "sp"), back, next);
+    WT.panel = panel;
+    WT.foot = foot;
+    WT.questions = [];
+    WT.ui = { label, pct, bar, list, count, ask, input, send, back, next };
+    // The stage line counts the seconds while Claude works on a point, so a long think never looks frozen.
+    WT.clock = setInterval(() => { if (WT && !WT.done) renderWT(); }, 1000);
+    onWT(w);
+  }
+
+  function onWT(w) {
+    if (!WT || !w || w.id !== WT.id) return;
+    if ((w.points || []).length > WT.points.length) lastEditAt = Date.now(); // new points keep the view polling
+    WT.info = w;
+    WT.offset = Date.now() - (w.now || Date.now());
+    // An answer's steps are inserted mid-list: keep the user on the same point (by identity, not index).
+    const ident = (x) => x && x.title + "|" + x.range + "|" + (x.q || "");
+    const here = WT.started && !WT.finished ? ident(WT.points[WT.at]) : null;
+    WT.points = w.points || [];
+    WT.planned = w.planned;
+    if (here) { const k = WT.points.findIndex((x) => ident(x) === here); if (k >= 0) WT.at = k; }
+    // A new answer to a question about the point on screen: play its steps, or outline the one range it's about.
+    const before = new Map(WT.questions.map((q) => [q.id, q]));
+    WT.questions = w.questions || [];
+    for (const q of WT.questions) {
+      const old = before.get(q.id);
+      if (q.answer === undefined || (old && old.answer !== undefined) || !WT.started || WT.finished || (WT.points[WT.at] || {}).q === q.id) continue;
+      const askedHere = q.point === WT.at;
+      if (q.steps && askedHere) { const k = WT.points.findIndex((x) => x.q === q.id); if (k >= 0) { renderWT(); goTo(k); } }
+      else if (q.tab && askedHere) {
+        const token = ++WT.nav;
+        queue = queue.then(() => showCells(q, token, firstWords(q.answer))).catch((err) => console.error("Sheet preview:", err));
+      }
+    }
+    const was = WT.done;
+    WT.done = !!w.done;
+    renderWT();
+    if (WT.started && WT.done && !waitingForAnswer()) stopPolling();
+    if (WT.done && !was) {
+      clearInterval(WT.clock);
+      if (WT.started) { if (!waitingForAnswer()) stopPolling(); }
+      // Let the last read finish animating, show "Ready" for a moment, then play from the first point.
+      else queue = queue.then(() => sleep(700)).then(() => { if (WT && !WT.started) startWT(0); });
+    }
+  }
+
+  // Reading counts for the first 40% (by tabs read, or by reads when Claude reads a few tabs closely); writing the points for the rest.
+  function wtProgress() {
+    const w = WT.info || {}, n = WT.points.length;
+    if (WT.done) return 1;
+    const read = Math.max(w.tabs_total ? w.tabs_read / w.tabs_total : 0, 1 - Math.pow(0.72, w.reads || 0));
+    if (!n) return 0.03 + 0.37 * Math.min(1, read);
+    return 0.4 + 0.6 * Math.min(0.96, n / Math.max(n + 1, WT.planned));
+  }
+  function wtStage() {
+    const w = WT.info || {}, n = WT.points.length, mains = WT.points.filter((x) => !x.q).length;
+    if (!canPoll) return "Live updates aren't available in this chat";
+    if (WT.done) return mains + (mains === 1 ? " point" : " points") + " · " + (WT.started ? "use Next or → to move on" : "ready");
+    const secs = (t) => Math.max(0, Math.round((Date.now() - WT.offset - t) / 1000));
+    if (!n) {
+      if (!w.reads) return "Getting started · " + secs(w.started_at) + " s";
+      const where = aiAt && aiAt.book === home.id && aiAt.tab ? "Reading " + aiAt.tab : "Reading";
+      return where + (w.tabs_total ? " · " + w.tabs_read + " of " + w.tabs_total + " tabs" : "");
+    }
+    const s = secs(w.last_point_at);
+    return "Writing point " + (n + 1) + " of " + Math.max(n + 1, WT.planned) + (s >= 3 ? " · " + s + " s" : "");
+  }
+
+  // Main points are numbered 1, 2, 3…; an answer's steps take their point's number and a letter (3a, 3b…).
+  function labels() {
+    let n = 0, sub = 0;
+    return WT.points.map((p) => (p.q ? String(n || 1) + String.fromCharCode(97 + sub++) : (sub = 0, String(++n))));
+  }
+  function renderWT() {
+    if (!WT) return;
+    const u = WT.ui, n = WT.points.length, stepping = WT.started && !WT.finished;
+    const prog = wtProgress();
+    u.bar.firstChild.style.width = (prog * 100).toFixed(1) + "%";
+    u.bar.classList.toggle("work", canPoll && !WT.done);
+    u.bar.classList.toggle("ready", WT.done);
+    u.label.textContent = wtStage();
+    u.pct.textContent = WT.done ? "" : Math.round(prog * 100) + "%";
+    // Rows are kept between updates, so only a new point slides in.
+    let ghost = u.list.querySelector(".ghost");
+    const rows = [...u.list.children].filter((r) => r !== ghost);
+    const lab = labels(), mains = WT.points.filter((x) => !x.q).length;
+    WT.points.forEach((p, i) => {
+      let r = rows[i];
+      if (!r) {
+        r = el("li", "wtr new");
+        const text = el("div");
+        text.append(el("b"), el("code"), el("p", "wtnote"));
+        r.append(el("span", "wtn"), text);
+        r.addEventListener("click", () => (WT.started ? goTo(i) : startWT(i)));
+        u.list.insertBefore(r, ghost);
+      }
+      r.className = "wtr" + (r.classList.contains("new") ? " new" : "") + (p.q ? " ans" : "") +
+        (stepping && i === WT.at ? " now" : (stepping && i < WT.at) || WT.finished ? " seen" : stepping ? " todo" : !WT.done && i === n - 1 ? " fresh" : "");
+      r.firstChild.textContent = lab[i];
+      if (r.lastChild.children.length < 4) r.lastChild.append(el("div", "wtthread"));
+      const [b, code, note, thread] = r.lastChild.children;
+      b.textContent = p.title;
+      code.textContent = p.range;
+      code.title = p.range;
+      note.textContent = p.note;
+      r.title = WT.started ? "" : "Start here";
+      // The thread shows on the point asked about while it, or one of its answer's steps, is on screen.
+      const cur = WT.points[WT.at], parent = cur && cur.q ? (WT.questions.find((q) => q.id === cur.q) || {}).point : WT.at;
+      renderThread(thread, stepping && i === parent ? i : -1);
+    });
+    // While Claude is still writing, a placeholder row marks the point on its way.
+    if (!WT.done && canPoll) {
+      if (!ghost) {
+        ghost = el("li", "wtr ghost");
+        const text = el("div");
+        text.append(el("i"), el("i"));
+        ghost.append(el("span", "wtn"), text);
+        u.list.append(ghost);
+      }
+      ghost.firstChild.textContent = String(mains + 1);
+      ghost.lastChild.firstChild.style.width = 50 + ((n * 17) % 35) + "%";
+    } else if (ghost) ghost.remove();
+    // Footer: where the user is, and the controls.
+    u.count.textContent = !WT.started ? (WT.done ? n + " points ready" : n ? n + (n === 1 ? " point" : " points") + " so far" : "Preparing…")
+      : WT.finished ? "Walkthrough complete" : "Point " + lab[WT.at] + " of " + (WT.done ? mains : Math.max(mains, WT.planned) + "…");
+    u.next.textContent = !WT.started ? "Start" : WT.finished ? "Replay" : WT.at >= n - 1 && WT.done ? "Finish" : "Next";
+    u.next.title = WT.finished ? "Play it again from the first point" : "Next point (→)";
+    u.next.disabled = !WT.started ? !n : !WT.finished && WT.at >= n - 1 && !WT.done;
+    u.back.hidden = !WT.started || WT.finished;
+    u.back.disabled = WT.at <= 0;
+    u.ask.hidden = !canMessage || !stepping;
+    u.send.disabled = !!WT.sending;
+  }
+
+  // The questions asked about point i (none when i is -1), each with Claude's answer or a waiting line.
+  const ANSWER_WAIT_MS = 3 * 60_000;
+  const waitingForAnswer = () => !!WT && (!!WT.sending || WT.questions.some((q) => q.answer === undefined && Date.now() - WT.offset - q.at < ANSWER_WAIT_MS));
+  const firstWords = (t) => { const s = String(t).split(/(?<=[.!?])\s/)[0]; return s.length > 70 ? s.slice(0, 67).trimEnd() + "…" : s; };
+  function renderThread(box, i) {
+    const items = i < 0 ? [] : WT.questions.filter((q) => q.point === i);
+    if (i >= 0 && WT.sending && WT.sending.point === i) items.push({ id: "sending", text: WT.sending.text, sending: true });
+    const key = JSON.stringify(items.map((q) => [q.id, q.answer !== undefined, !!q.failed, q.answer === undefined && Date.now() - WT.offset - q.at >= ANSWER_WAIT_MS]));
+    if (box.dataset.key === key) return; // unchanged: don't restart the fade-ins
+    box.dataset.key = key;
+    box.textContent = "";
+    for (const q of items) {
+      box.append(el("div", "wtq", q.text));
+      if (q.failed) box.append(el("div", "wta wait", "Couldn't send this to the chat."));
+      else if (q.answer !== undefined) {
+        const a = el("div", "wta");
+        a.append(el("span", "who", "Claude"), q.answer);
+        if (q.steps) {
+          const play = el("button", "play", "Show on the sheet · " + q.steps + (q.steps === 1 ? " step" : " steps"));
+          play.type = "button";
+          play.addEventListener("click", () => { const k = WT.points.findIndex((x) => x.q === q.id); if (k >= 0) goTo(k); });
+          a.append(el("br"), play);
+        } else if (q.tab) {
+          const cells = el("button", "cells", q.range);
+          cells.type = "button";
+          cells.title = "Show these cells";
+          cells.addEventListener("click", () => { const token = ++WT.nav; queue = queue.then(() => showCells(q, token, firstWords(q.answer))).catch(() => {}); });
+          a.append(el("br"), cells);
+        }
+        box.append(a);
+      } else if (!q.sending && Date.now() - WT.offset - q.at >= ANSWER_WAIT_MS) box.append(el("div", "wta wait", "No answer here yet. Claude may have replied in the chat."));
+      else {
+        const w = el("div", "wta wait", "Claude is answering");
+        w.append(el("i"), el("i"), el("i"));
+        box.append(w);
+      }
+    }
+  }
+
+  function startWT(i) {
+    if (!WT) return;
+    WT.started = true;
+    if (WT.done) stopPolling();
+    goTo(i);
+  }
+  function onNext() {
+    if (!WT) return;
+    const n = WT.points.length;
+    if (!WT.started) { if (n) startWT(0); }
+    else if (WT.finished) goTo(0);
+    else if (WT.at >= n - 1) { if (WT.done) finishWT(); }
+    else goTo(WT.at + 1);
+  }
+  function finishWT() {
+    WT.finished = true;
+    WT.nav++;
+    hideCallout();
+    if (ui) ui.cur.classList.remove("on");
+    renderWT();
+    reportPosition();
+  }
+  function goTo(i) {
+    if (!WT || i < 0 || i >= WT.points.length) return;
+    WT.finished = false;
+    WT.at = i;
+    renderWT();
+    const row = WT.ui.list.children[i], list = WT.ui.list;
+    if (row) {
+      if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop - 8;
+      else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight + 8;
+    }
+    reportPosition();
+    const token = ++WT.nav;
+    // In the queue, after any animation still running; a quicker click supersedes this one.
+    queue = queue.then(() => showPoint(i, token)).catch((err) => console.error("Sheet preview:", err));
+  }
+
+  // The grid already shows this point's cells (the tab, and the top-left of the range).
+  const holds = (q, p) => !!q && q.spreadsheet_id === home.id && q.tab === p.tab &&
+    (!p.rect || (p.rect.r0 >= q.start_row && p.rect.r0 < q.start_row + q.rows.length && p.rect.c0 >= q.start_col && p.rect.c0 < q.start_col + q.col_widths.length));
+  async function fetchTab(p) {
+    try {
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, range: quoteTab(p.tab) + "!" + windowAround(p.rect), peek: true, since: seq, view: view(), wt: WT.id, ...(account && { account }) } });
+      const s = r && !r.isError && r.structuredContent;
+      if (!s || !s.preview) return null;
+      const q = inflate(s.preview);
+      if (WT) WT.cache.set(p.tab, q);
+      return q;
+    } catch {
+      return null;
+    }
+  }
+  // Load the next point's tab while the user reads this one, so Next is instant.
+  function prefetch(i) {
+    const p = WT && WT.points[i];
+    if (!p || !canPoll || holds(P, p) || holds(WT.cache.get(p.tab), p) || WT.fetching.has(p.tab)) return;
+    WT.fetching.add(p.tab);
+    fetchTab(p).finally(() => WT && WT.fetching.delete(p.tab));
+  }
+
+  function showPoint(i, token) {
+    const p = WT && WT.points[i];
+    if (!p || token !== WT.nav) return;
+    return showCells(p, token, p.callout, i + 1);
+  }
+  // Bring a range into view (its tab first) and outline it like a read, then type the callout beside it.
+  async function showCells(p, token, callout, next) {
+    if (!WT || token !== WT.nav) return;
+    hideCallout();
+    pinned = null;
+    if (!holds(P, p)) {
+      if (P && P.spreadsheet_id === home.id && !WT.cache.has(P.tab)) WT.cache.set(P.tab, P); // so Back to it is instant
+      let q = WT.cache.get(p.tab);
+      if (!holds(q, p)) {
+        WT.ui.count.textContent = "Opening " + p.tab + "…";
+        q = canPoll ? await fetchTab(p) : null;
+        if (token !== WT.nav) return;
+        if (!q) { WT.ui.count.textContent = "Couldn't open " + p.tab; return; }
+      }
+      P = q;
+      render(P, true);
+      renderWT();
+    }
+    if (done) setDone(false);
+    const v = p.rect ? visible(p.rect) : null;
+    if (!v) { ui.cur.classList.remove("on"); if (next != null) prefetch(next); return; }
+    // The same scan as a read, then the outline settles and the callout types in beside it.
+    ui.cur.classList.remove("settled", "sweep");
+    ui.cur.classList.add("scan");
+    moveCursor(v, true);
+    select(v.r0, v.c0, false);
+    await sleep(450);
+    if (token !== WT.nav) return;
+    ui.cur.style.setProperty("--sweep", "650ms");
+    void ui.cur.offsetWidth;
+    ui.cur.classList.add("sweep");
+    await sleep(650);
+    if (token !== WT.nav) return;
+    ui.cur.classList.remove("scan", "sweep");
+    ui.cur.classList.add("settled");
+    if (next != null) prefetch(next);
+    typeCallout(v, callout, token); // not awaited: Next works while it types
+  }
+
+  function hideCallout() {
+    if (!ui || !ui.callout) return;
+    ui.callout.className = "callout";
+    ui.callout.textContent = "";
+  }
+  // Below the range if it fits in view, else above, else just inside its top edge; typed a letter at a time (click to finish).
+  async function typeCallout(v, text, token) {
+    const c = ui && ui.callout;
+    if (!c || !text) return;
+    const a = ui.cells[v.r0][v.c0], b = ui.cells[v.r1][v.c1];
+    const w = ui.wrap.getBoundingClientRect(), sv = ui.scroll.getBoundingClientRect(), ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    Object.assign(c.style, { width: "", minHeight: "", visibility: "hidden" });
+    c.textContent = text;
+    c.classList.add("on");
+    const box = c.getBoundingClientRect(), gap = 8, headH = (ui.frozen ? ui.frozen.h : 24) * ZOOM;
+    let top;
+    if (rb.bottom + gap + box.height <= sv.bottom - 6) top = rb.bottom + gap;
+    else if (ra.top - gap - box.height >= sv.top + headH) top = ra.top - gap - box.height;
+    else top = Math.max(sv.top + headH + 6, Math.min(ra.top + 6, sv.bottom - box.height - 6));
+    const left = Math.max(sv.left + 4, Math.min(Math.max(ra.left, sv.left + 46 * ZOOM), sv.right - box.width - 10));
+    // Fixed to the finished text's size, so it doesn't reflow as it types.
+    Object.assign(c.style, { transform: "translate(" + (left - w.left) / ZOOM + "px," + (top - w.top) / ZOOM + "px)", width: box.width / ZOOM + "px", minHeight: box.height / ZOOM + "px", visibility: "" });
+    c.title = "Click to hide";
+    if (reduced) { c.onclick = hideCallout; return; }
+    let skip = false;
+    c.onclick = () => { if (c.classList.contains("typing")) skip = true; else hideCallout(); };
+    c.classList.add("typing");
+    for (let k = 1; k <= text.length && !skip; k++) {
+      if (!WT || token !== WT.nav || !c.isConnected) return;
+      c.textContent = text.slice(0, k);
+      await new Promise((r) => setTimeout(r, text[k - 1] === " " ? 10 : 20));
+    }
+    if (!WT || token !== WT.nav || !c.isConnected) return;
+    c.textContent = text;
+    c.classList.remove("typing");
+  }
+
+  // Claude learns which point the user is on: through the server (mentioned when Claude next reads this sheet), and,
+  // where the host allows it, in the conversation's context, so a question typed in chat is answered about that point.
+  function reportPosition() {
+    if (!WT || !home) return;
+    const p = WT.finished ? null : WT.points[WT.at];
+    if (canPoll && P) request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, range: P.window, since: seq, view: view(), heartbeat: true, wt: WT.id, ...(p && { wt_at: WT.at }), ...(account && { account }) } }).catch(() => {});
+    if (canContext) {
+      const text = p
+        ? 'In the walkthrough "' + WT.title + '", the user is on point ' + labels()[WT.at] + " of " + WT.points.filter((x) => !x.q).length + ": " + p.title + " (" + p.range + "). " + p.note +
+          ' Questions typed in the walkthrough arrive as messages starting "Question about point": answer them with answer_walkthrough_question so the answer shows there, then reply in the chat with one short line.' 
+        : 'The user finished the walkthrough "' + WT.title + '".';
+      request("ui/update-model-context", { content: [{ type: "text", text }] }).catch(() => { canContext = false; });
+    }
+  }
+  // The question is logged with the server first (so Claude's answer can come back here), then sent to the chat as
+  // the user's message; the view polls until the answer arrives.
+  async function askAbout() {
+    const p = WT && WT.points[WT.at], input = WT && WT.ui.input;
+    const text = input ? input.value.trim() : "";
+    if (!p || !text || !canMessage || WT.sending) return;
+    const point = WT.at;
+    WT.sending = { point, text };
+    input.value = "";
+    input.style.height = "auto";
+    renderWT();
+    let failed = false;
+    try {
+      const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: home.id, range: P.window, since: seq, view: view(), heartbeat: true, wt: WT.id, wt_at: point, wt_ask: text, ...(account && { account }) } });
+      const s = r && !r.isError && r.structuredContent;
+      if (!s || !s.walkthrough) throw new Error("not logged");
+      WT.sending = null;
+      onWT(s.walkthrough);
+      const m = await request("ui/message", { role: "user", content: [{ type: "text", text: "Question about point " + labels()[point] + ' of the walkthrough ("' + p.title + '", ' + p.range + "): " + text }] });
+      if (m && m.isError) throw new Error("refused");
+    } catch {
+      failed = true;
+    }
+    WT.sending = null;
+    if (failed) {
+      // Show it as not sent (and put the text back) rather than waiting for an answer that won't come.
+      const q = WT.questions.find((x) => x.point === point && x.text === text && x.answer === undefined);
+      if (q) q.failed = true;
+      else WT.questions.push({ id: "f" + Date.now(), point, text, failed: true, at: Date.now() - WT.offset });
+      input.value = text;
+    } else if (!polling) startPolling();
+    renderWT();
+  }
+  // → or Enter for Next, ← for Back (a focused button handles its own Enter).
+  document.addEventListener("keydown", (e) => {
+    if (!WT || !WT.started || e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || (e.target.tagName === "BUTTON" && e.key === "Enter")) return;
+    if (e.key === "ArrowRight" || e.key === "Enter") { if (!WT.finished) { e.preventDefault(); onNext(); } }
+    else if (e.key === "ArrowLeft" && !WT.finished) { e.preventDefault(); goTo(WT.at - 1); }
+  });
 
   // ---------- startup ----------
   async function onResult(result) {
@@ -1244,7 +1746,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     for (let i = 0; (!s || !s.preview) && canPoll && toolArgs.spreadsheet && i < 3; i++) {
       if (i) await sleep(1000);
       try {
-        const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: toolArgs.spreadsheet, range: toolArgs.range, highlight: toolArgs.highlight, initial: true, ...(toolArgs.account && { account: toolArgs.account }) } });
+        const r = await request("tools/call", { name: "preview_updates", arguments: { spreadsheet: toolArgs.spreadsheet, range: toolArgs.range, highlight: toolArgs.highlight, initial: true, ...(toolArgs.title && { walkthrough: true }), ...(toolArgs.account && { account: toolArgs.account }) } });
         if (r && !r.isError && r.structuredContent && r.structuredContent.preview) s = r.structuredContent;
       } catch {}
     }
@@ -1259,6 +1761,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
     home = { id: P.spreadsheet_id, title: P.title };
     noteBook(home.id, home.title, P.tab);
     for (const e of s.edits || []) if (e.spreadsheet && !e.failed) noteBook(e.spreadsheet, e.spreadsheet_title, e.tab, e.rect);
+    if (s.walkthrough) initWT(s.walkthrough);
     render(P);
     setLive();
     // Steps from before the preview opened are counted and outlined, not replayed; one still running shows as such.
@@ -1328,7 +1831,10 @@ td.typed { animation: typed 320ms var(--ease) both; }
     appCapabilities: {},
   }).then((r) => {
     applyContext(r && r.hostContext);
-    canPoll = !!(r && r.hostCapabilities && r.hostCapabilities.serverTools);
+    const caps = (r && r.hostCapabilities) || {};
+    canPoll = !!caps.serverTools;
+    canMessage = !!caps.message;
+    canContext = !!caps.updateModelContext;
     notify("ui/notifications/initialized", {});
   }, () => {});
 })();

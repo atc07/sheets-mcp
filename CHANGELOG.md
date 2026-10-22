@@ -2,6 +2,10 @@
 
 What changed in each release of Sheets MCP. The same notes are on [sheetsmcp.io/changelog](https://sheetsmcp.io/changelog) and on each [GitHub release](https://github.com/atc07/sheets-mcp/releases).
 
+## Unreleased
+
+- **Walkthroughs:** ask Claude to explain a sheet ("walk me through this model") and it plays the explanation on the sheet itself, in the live preview. While Claude reads, a progress bar and the points as Claude writes them; then Claude's cursor goes to each range, outlines it, types a short note beside it, and waits for you to click **Next** (or press →). **Back** and jumping to any point are there too. Ask a question about the point in the walkthrough's own box: it goes to the chat, and Claude's answer appears in the walkthrough under your question. When the answer is about cells, Claude shows them: one range is outlined, several play as steps (3a, 3b…) right after the point, then the walkthrough carries on. Claude also uses walkthroughs for reviews and meeting prep, pointing at the cells behind each question instead of naming them in text. Everything is drawn in the preview only: nothing is written to the sheet, so collaborators see nothing.
+
 ## 1.3.9 — October 12, 2026
 
 - The live preview always opens when Claude works in a sheet. Sheets MCP no longer guesses from an idle computer that you're on your phone and switches to text summaries; that guess was often wrong and hid the preview.

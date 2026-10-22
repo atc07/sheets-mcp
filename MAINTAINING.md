@@ -72,7 +72,7 @@ claude mcp add --scope user google-sheets -- node /Users/bluesteel/Desktop/Proje
 | Structure | `manage_tab`, `insert_rows_or_columns`, `delete_rows_or_columns`, `freeze`, `resize_columns`, `merge_cells` |
 | Formatting | `format_range`, `format_ranges`, `add_conditional_format`; read formatting with `read_range` mode `formats` |
 | Data | `sort_range`, `set_filter`, `set_data_validation`, `add_chart`, `update_chart`, `delete_chart`, `add_pivot_table` |
-| Live preview | `show_range` (MCP Apps hosts only), `preview_updates` (called by the widget, not the model) |
+| Live preview | `show_range`, `start_walkthrough`, `add_walkthrough_point` (MCP Apps hosts only), `preview_updates` (called by the widget, not the model) |
 | Escape hatch | `batch_update` (raw Sheets API requests) |
 
 Safety features:
@@ -87,7 +87,9 @@ Safety features:
 
 Every tool call is logged twice for the widget: when it starts (`pending`, so the step row and cursor appear right away) and when it finishes, under the same `id`. The widget polls `preview_updates`; a poll that finds only started steps costs no Sheets API call.
 
-To work on the widget without Claude, run the harness, which plays a scripted session through the real widget page:
+Walkthroughs reuse the same widget. `start_walkthrough` opens it (like `show_range`) and creates a walkthrough for the spreadsheet in server memory (`walkthroughs`, one per spreadsheet); `add_walkthrough_point` appends points. The widget asks for it by id (`wt`) on each `preview_updates` poll and gets it back as `walkthrough`, with read counts for the progress bar. Once the last point lands the widget stops polling and plays the points locally, fetching each point's tab with `peek` (cached per tab, next one prefetched). It reports the point the user is on (`wt_at`), which read tools then mention to Claude, and sends it as model context where the host supports `ui/update-model-context`; Questions typed in the walkthrough are logged with `wt_ask` (then sent to the chat with `ui/message`); Claude answers with `answer_walkthrough_question`, whose `steps` are spliced into the points right after the one asked about (marked with the question id, shown as 3a, 3b…). The widget polls until the answer arrives (3 minutes at most). Neither tool writes to the sheet.
+
+To work on the widget without Claude, run the harness, which plays a scripted session through the real widget page (`?s=walk` plays a walkthrough):
 
 ```bash
 npm run build && node scripts/preview-harness.mjs   # http://localhost:4177

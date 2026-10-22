@@ -4,7 +4,9 @@
 // scans, formatting lands, a fill runs, Claude moves to another tab, and one step fails.
 // The "copy" session (?s=copy) has Claude read two other spreadsheets, then copy into an empty new one: the
 // preview follows the reads into the sources, then stays on the new sheet once Claude writes to it.
-// Usage: npm run build && node scripts/preview-harness.mjs   (then open http://localhost:4177, or /?s=copy)
+// The "walkthrough" session (?s=walk) plays start_walkthrough: Claude reads (the progress bar moves), adds four points
+// one at a time, then the walkthrough plays; the fake host also accepts ui/message and ui/update-model-context.
+// Usage: npm run build && node scripts/preview-harness.mjs   (then open http://localhost:4177, /?s=copy or /?s=walk)
 import { createServer } from "node:http";
 import { PREVIEW_HTML } from "../dist/preview-html.js";
 
@@ -30,6 +32,7 @@ const PAGE = /* html */ `<!doctype html>
   <button id="theme">Toggle dark</button>
   <label><input type="checkbox" id="burst"> Burst (many steps at once)</label>
   <label><input type="checkbox" id="copy"> Copy from other sheets</label>
+  <label><input type="checkbox" id="walk"> Walkthrough</label>
   <span id="status"></span>
 </div>
 <iframe id="w" src="/widget"></iframe>
@@ -38,8 +41,10 @@ const PAGE = /* html */ `<!doctype html>
 (() => {
   const frame = document.getElementById("w"), log = document.getElementById("log"), status = document.getElementById("status");
   const say = (s) => { log.textContent = new Date().toISOString().slice(11, 23) + "  " + s + "\\n" + log.textContent; };
-  let dark = false, burst = false, copy = new URLSearchParams(location.search).get("s") === "copy";
+  const mode = new URLSearchParams(location.search).get("s");
+  let dark = false, burst = false, copy = mode === "copy", walk = mode === "walk";
   document.getElementById("copy").checked = copy;
+  document.getElementById("walk").checked = walk;
 
   // ----- a sample sheet, in the compact wire format (plain cells are bare strings) -----
   const money = (n) => ({ v: (n < 0 ? "(" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("en-US") + (n < 0 ? ")" : ""), n: true, ...(n < 0 && { fg: "#c00000" }) });
@@ -94,6 +99,26 @@ const PAGE = /* html */ `<!doctype html>
       fail: () => events.push({ ...base(), seq: ++nextSeq, failed: true }),
     };
   }
+  // The walkthrough the server would hold: Claude's reads move the bar, then points arrive one by one.
+  let W = null;
+  const wtInfo = () => {
+    const reads = events.filter((e) => e.kind === "read" && !e.pending && !e.failed);
+    return { ...W, points: W.points.slice(), reads: reads.length, tabs_read: new Set(reads.map((e) => e.tab)).size, tabs_total: TABS.length, now: Date.now() };
+  };
+  const POINTS = [
+    { title: "What this tab compares", range: "'Profit Options'!B3:J3", tab: "Profit Options", rect: rect(2, 1, 3, 10), a1: "B3:J3",
+      note: "Each row is one way to improve profit, shown without and with the Santos sites. Columns run from the lever you set to the FY27 and cash impact.",
+      callout: "One row per profit option, with and without Santos" },
+    { title: "The levers you can change", range: "'Profit Options'!D4:D11", tab: "Profit Options", rect: rect(3, 3, 11, 4), a1: "D4:D11",
+      note: "The blue cells on yellow are inputs. Change a lever (a discount cut, a price rise) and every impact on the row recalculates.",
+      callout: "Blue on yellow = inputs you can change" },
+    { title: "Inputs that feed every option", range: "Inputs!B3:C7", tab: "Inputs", rect: rect(2, 1, 7, 3), a1: "B3:C7",
+      note: "Churn, discounts and the host rate on the Inputs tab apply to all options at once, so set these first.",
+      callout: "Shared assumptions behind every option" },
+    { title: "The bottom line", range: "'Profit Options'!H12:I12", tab: "Profit Options", rect: rect(11, 7, 12, 9), a1: "H12:I12",
+      note: "Selected options add up here: about $7.2M in FY27 and $7.4M of cash. Switch an option off in column F or G and the total drops.",
+      callout: "All selected options: ~$7.2M FY27, ~$7.4M cash" },
+  ];
   function reset() {
     for (const t of timers) clearTimeout(t);
     timers = [];
@@ -101,6 +126,27 @@ const PAGE = /* html */ `<!doctype html>
     events = [];
     nextSeq = 0;
     const at = (ms, fn) => timers.push(setTimeout(fn, burst ? ms / 4 : ms));
+    W = null;
+    if (walk) {
+      const t0 = Date.now();
+      W = { id: 1, title: "How the profit options work", planned: 4, points: [], done: false, started_at: t0, last_point_at: t0, questions: [] };
+      const r1 = step("get_spreadsheet_info", "read", "Dashboard", null);
+      const r2 = step("read_range", "read", "Profit Options", rect(2, 1, 12, 10));
+      const r3 = step("read_range", "read", "Inputs", rect(1, 1, 7, 4));
+      const r4 = step("read_range", "read", "P&L", rect(0, 0, 20, 8));
+      at(1200, r1.start); at(2200, r1.finish);
+      at(3000, r2.start); at(4600, r2.finish);
+      at(5400, r3.start); at(6400, r3.finish);
+      at(7000, r4.start); at(8200, r4.finish);
+      POINTS.forEach((pt, i) => at(10500 + i * 3800, () => {
+        W.points.push(pt);
+        W.last_point_at = Date.now();
+        if (i === POINTS.length - 1) W.done = true;
+        say("add_walkthrough_point " + (i + 1) + (W.done ? " (last)" : ""));
+      }));
+      status.textContent = "Playing the walkthrough session…";
+      return;
+    }
     if (copy) {
       const PO = [{ title: "Sheet1" }, { title: "Profit Options" }];
       const c1 = step("get_spreadsheet_info", "read", "Profit Options", null, null, V17);
@@ -145,20 +191,59 @@ const PAGE = /* html */ `<!doctype html>
     if (!m || m.jsonrpc !== "2.0") return;
     if (m.method === "ui/initialize") {
       say("ui/initialize");
-      send({ id: m.id, result: { protocolVersion: "2026-01-26", hostContext: { theme: dark ? "dark" : "light" }, hostCapabilities: { serverTools: {} } } });
+      send({ id: m.id, result: { protocolVersion: "2026-01-26", hostContext: { theme: dark ? "dark" : "light" }, hostCapabilities: { serverTools: {}, ...(walk && { message: {}, updateModelContext: {} }) } } });
     } else if (m.method === "ui/notifications/initialized") {
       reset();
-      send({ method: "ui/notifications/tool-input", params: { arguments: { spreadsheet: "demo", ...(!copy && { range: "'Profit Options'!A1:J30" }) } } });
-      send({ method: "ui/notifications/tool-result", params: { structuredContent: { preview: clone(state.current), edits: [], seq: 0, account: "demo@example.com" } } });
+      send({ method: "ui/notifications/tool-input", params: { arguments: { spreadsheet: "demo", ...(!copy && { range: "'Profit Options'!A1:J30" }), ...(walk && { title: W.title, points: 4 }) } } });
+      send({ method: "ui/notifications/tool-result", params: { structuredContent: { preview: clone(state.current), edits: [], seq: 0, account: "demo@example.com", ...(walk && { walkthrough: wtInfo() }) } } });
       say("tool-result sent (preview " + JSON.stringify(state.current).length + " chars)");
     } else if (m.method === "ui/notifications/size-changed") {
       frame.style.height = Math.ceil(m.params.height) + "px";
     } else if (m.method === "ui/open-link") {
       say("open-link " + m.params.url);
       send({ id: m.id, result: {} });
+    } else if (m.method === "ui/message") {
+      say("ui/message (sent to the chat as the user): " + m.params.content.map((c) => c.text).join(" "));
+      send({ id: m.id, result: {} });
+    } else if (m.method === "ui/update-model-context") {
+      say("ui/update-model-context: " + m.params.content.map((c) => c.text).join(" "));
+      send({ id: m.id, result: {} });
     } else if (m.method === "tools/call") {
       const a = m.params.arguments || {};
       if (m.params.name !== "preview_updates") return send({ id: m.id, error: { code: -32601, message: "Unknown tool" } });
+      if (walk) {
+        if (a.wt_at !== undefined) say("position: point " + (a.wt_at + 1));
+        if (a.wt_ask && W) {
+          // A fake Claude: the first question gets an answer with two steps on the sheet, later ones a plain answer.
+          const q = { id: W.questions.length + 1, point: a.wt_at, text: a.wt_ask, at: Date.now() };
+          W.questions.push(q);
+          say("question logged: " + a.wt_ask);
+          timers.push(setTimeout(() => {
+            if (q.id === 1) {
+              const steps = [
+                { title: "Discount cut lever", range: "'Profit Options'!D4", tab: "Profit Options", rect: rect(3, 3, 4, 4), a1: "D4", note: "This 10% is the cut in sales discounts. It's an input: type a new percentage and the row recalculates.", callout: "10% discount cut: the input", q: q.id },
+                { title: "Where it lands", range: "'Profit Options'!H4:I4", tab: "Profit Options", rect: rect(3, 7, 4, 9), a1: "H4:I4", note: "That one lever is worth $2.05M in FY27 and the same in cash, the biggest single option.", callout: "$2.05M FY27, $2.05M cash", q: q.id },
+              ];
+              let at = q.point + 1;
+              while (at < W.points.length && W.points[at].q) at++;
+              W.points.splice(at, 0, ...steps);
+              for (const o of W.questions) if (o !== q && o.point >= at) o.point += steps.length;
+              W.planned = W.points.length;
+              Object.assign(q, { answer: "The discount lever is the single biggest option: cutting discounts by 10% adds about $2.05M a year.", steps: steps.length });
+            } else Object.assign(q, { answer: "Yes: every option on this tab uses the same start-date logic, so moving a start month shifts its FY27 impact.", range: "'Profit Options'!E4:E11", tab: "Profit Options", rect: rect(3, 4, 11, 5) });
+            say("answer_walkthrough_question for question " + q.id);
+          }, 2500));
+        }
+        const reply = (sc) => send({ id: m.id, result: { structuredContent: { ...sc, ...(a.wt === 1 && W && { walkthrough: wtInfo() }) } } });
+        if (a.heartbeat) return reply({ seq: a.since });
+        if (a.peek) {
+          const tab = /^'?([^'!]+)'?!/.exec(a.range || "")?.[1];
+          say("peek " + tab);
+          return reply({ preview: tab === "Inputs" ? inputs() : tab === "Profit Options" ? sheet() : { ...inputs(), tab, rows: [[{ v: tab + " (sample)", b: true }, "", "", ""]], frozen_rows: 0 }, seq: nextSeq });
+        }
+        const edits = events.filter((x) => x.seq > (a.since || 0)).map(({ changed, ...x }) => x);
+        return reply({ edits, seq: nextSeq });
+      }
       if (copy) return send({ id: m.id, result: { structuredContent: copyUpdate(a) } });
       if (a.peek) {
         const tab = /^'?([^'!]+)'?!/.exec(a.range || "")?.[1];
@@ -200,6 +285,7 @@ const PAGE = /* html */ `<!doctype html>
   }
 
   document.getElementById("copy").addEventListener("change", (e) => { copy = e.target.checked; frame.src = "/widget?" + Date.now(); });
+  document.getElementById("walk").addEventListener("change", (e) => { walk = e.target.checked; frame.src = "/widget?" + Date.now(); });
   document.getElementById("replay").addEventListener("click", () => { frame.src = "/widget?" + Date.now(); });
   document.getElementById("theme").addEventListener("click", () => { dark = !dark; document.body.classList.toggle("dark", dark); send({ method: "ui/notifications/host-context-changed", params: { theme: dark ? "dark" : "light" } }); });
   document.getElementById("burst").addEventListener("change", (e) => { burst = e.target.checked; });

@@ -21,6 +21,7 @@ import {
   type PreviewEdit,
   type PreviewTab,
   type Rect,
+  walkthroughStarted,
 } from "./preview.js";
 import { getAuthClient, getDefaultAccount, listAccounts, removeAccount, resolveAccount, setDefaultAccount, startSignIn, type SignIn } from "./auth.js";
 
@@ -496,10 +497,10 @@ const followed = new Map<string, number>();
 const TASK_GAP_MS = 10 * 60_000;
 /** A preview polls every few seconds: one that reported being in view this recently is still on the user's screen. */
 const PREVIEW_LIVE_MS = 30_000;
-const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "show_recent_sheets", "recent_sheets_update", "create_spreadsheet", "show_range", "preview_updates"]);
+const UNLOGGED = new Set(["google_accounts", "find_spreadsheet", "show_recent_sheets", "recent_sheets_update", "create_spreadsheet", "show_range", "preview_updates", "start_walkthrough", "add_walkthrough_point", "answer_walkthrough_question"]);
 const READS = new Set(["get_spreadsheet_info", "read_range", "read_ranges"]);
 /** Tools that only look (hosts can run these without asking), and tools that can overwrite or remove what's in a sheet. */
-const READ_ONLY = new Set([...READS, "find_spreadsheet", "show_recent_sheets", "show_range", "preview_updates"]);
+const READ_ONLY = new Set([...READS, "find_spreadsheet", "show_recent_sheets", "show_range", "preview_updates", "start_walkthrough", "add_walkthrough_point", "answer_walkthrough_question"]);
 const DESTRUCTIVE = new Set(["write_range", "fill_range", "clear_range", "find_replace", "delete_rows_or_columns", "manage_tab", "merge_cells", "delete_chart", "batch_update"]);
 
 function pushActivity(id: string, e: Activity) {
@@ -576,6 +577,100 @@ async function activitySince(id: string, since: number, after = 0, before = Infi
     return { ...base, tab, rect, a1: open ? e.range.slice(e.range.lastIndexOf("!") + 1) : toA1(undefined, rect.r0, rect.c0, rect.r1, rect.c1) };
   });
 }
+
+// ---------- walkthroughs (an explainer played in the live preview) ----------
+
+/**
+ * A walkthrough: Claude explains a spreadsheet point by point, each point tied to a range. It lives only here and in
+ * the preview (nothing is written to the sheet, so collaborators see nothing). Claude starts it, reads what it needs
+ * while the preview shows progress, then adds the points one at a time; the preview plays them, waiting for the user
+ * to click Next between points. One per spreadsheet: starting another replaces it.
+ */
+interface WalkPoint {
+  title: string;
+  range: string;
+  tab: string;
+  rect?: Rect;
+  a1?: string;
+  note: string;
+  callout: string;
+  /** Set on the steps of an answer: the question they answer (they sit right after the point it was asked about). */
+  q?: number;
+}
+interface Walk {
+  id: number;
+  title: string;
+  planned: number;
+  points: WalkPoint[];
+  done: boolean;
+  startedAt: number;
+  lastPointAt: number;
+  /** The point the user is looking at (0-based), as the preview last reported, and when. */
+  at?: number;
+  atAt?: number;
+  /** Questions typed in the walkthrough (also sent to the chat), and Claude's answers, shown under their point. */
+  questions: WalkQuestion[];
+}
+interface WalkQuestion {
+  id: number;
+  point: number;
+  text: string;
+  at: number;
+  answer?: string;
+  range?: string;
+  tab?: string;
+  rect?: Rect;
+  answeredAt?: number;
+  /** How many steps the answer added to the walkthrough. */
+  steps?: number;
+}
+const walkthroughs = new Map<string, Walk>();
+let walkSeq = 0;
+/** How long a walkthrough can be added to, and how long the user's place in it is worth mentioning to Claude. */
+const WALK_OPEN_MS = 60 * 60_000;
+const WALK_POSITION_MS = 30 * 60_000;
+
+/** What the preview needs to draw a walkthrough: its points, plus how far Claude's reading has got (for the progress bar). */
+async function walkInfo(id: string, w: Walk) {
+  const reads = (activityLog.get(id) ?? []).filter((e) => e.kind === "read" && !e.pending && !e.failed && e.at >= w.startedAt);
+  let tabsTotal = 0;
+  try {
+    tabsTotal = (await getSheetProps(id)).filter((p) => !p.hidden).length;
+  } catch {
+    // Without the tab count the bar goes by the number of reads alone.
+  }
+  return {
+    id: w.id,
+    title: w.title,
+    planned: w.planned,
+    done: w.done,
+    points: w.points.map(({ title, range, tab, rect, a1, note, callout, q }) => ({ title, range, tab, ...(rect && { rect, a1 }), note, callout, ...(q && { q }) })),
+    reads: reads.length,
+    // A read names its tab in the range ("Sales!A1:D9"); get_spreadsheet_info names none.
+    tabs_read: new Set(reads.map((e) => e.tab ?? (e.range ? parseA1(e.range).sheet : undefined)).filter(Boolean)).size,
+    tabs_total: tabsTotal,
+    started_at: w.startedAt,
+    last_point_at: w.lastPointAt,
+    questions: w.questions.map(({ id, point, text, at, answer, range, tab, rect, steps }) => ({ id, point, text, at, ...(answer !== undefined && { answer }), ...(range && { range, tab }), ...(rect && { rect }), ...(steps && { steps }) })),
+    now: Date.now(),
+  };
+}
+
+/** A point's number as the walkthrough shows it: main points 1, 2, 3…; an answer's steps 3a, 3b… */
+function walkLabel(w: Walk, i: number) {
+  let n = 0, sub = 0, out = "";
+  for (const p of w.points.slice(0, i + 1)) {
+    if (p.q) out = String(n || 1) + String.fromCharCode(97 + sub++);
+    else {
+      sub = 0;
+      out = String(++n);
+    }
+  }
+  return out;
+}
+
+/** The walkthrough question Claude hasn't answered yet (the newest), if any. */
+const openQuestion = (w: Walk) => [...w.questions].reverse().find((q) => q.answer === undefined);
 
 /** Run as the account that last worked with this spreadsheet (it may not be the one the preview's own sheet uses). */
 function inAccountFor<T>(id: string, fn: () => Promise<T>) {
@@ -692,7 +787,9 @@ export function createServer() {
         "If the show_recent_sheets tool is available, call it whenever the user wants to work on a spreadsheet without pasting a link or naming one that matches exactly (\"let's work on my sheets\", \"the budget one\"), and when a name matches several: they pick from the sheets they've worked on, or paste a link. Don't call it again once they've picked. " +
         "Without show_recent_sheets, call find_spreadsheet when they name a sheet: it knows the spreadsheets they've used with Sheets MCP before. Neither can search their Google Drive, so ask for the link if nothing matches. " +
         "When several Google accounts are connected, some tools reply that the account must be confirmed: ask the user which account to use, then call the tool again with `account` set to their choice. Never pick an account for them. " +
-        "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once for each request from the user, and again when a tool result says the live view is out of their sight. If you've already started without it, call it right away; it catches up on what you've done. ",
+        "If the show_range tool is available, call it FIRST whenever the user asks you to look at or change a spreadsheet, before reading or editing: the user then watches each read and edit happen live. Call it once for each request from the user, and again when a tool result says the live view is out of their sight. If you've already started without it, call it right away; it catches up on what you've done. " +
+        "If the start_walkthrough tool is available, use it instead of show_range whenever your answer is about specific places in a sheet rather than changes to it: explaining a sheet or part of one, walking someone through it, reviewing a model, pointing out problems, checks that fail or numbers that don't tie, or preparing questions for a meeting (one point per question, tied to the cells to point at, with the numbers). It shows your progress while you read, then plays your explanation on the sheet point by point, waiting for the user between points. It only reads; nothing is written to the sheet. Don't describe cells in text (\"E56 and E57 fail\") when you can show them. " +
+        "A message that starts \"Question about point N of the walkthrough\" was typed in the walkthrough: answer it with answer_walkthrough_question (reading cells first if you need to), so the answer appears in the walkthrough, then reply in the chat with one short line. ",
     },
   );
 
@@ -770,6 +867,7 @@ export function createServer() {
     add_conditional_format: "Add conditional formatting", sort_range: "Sort a range", set_filter: "Set a filter",
     set_data_validation: "Dropdowns and validation", add_chart: "Add a chart", update_chart: "Update a chart", delete_chart: "Delete a chart",
     add_pivot_table: "Add a pivot table", batch_update: "Advanced batch update",
+    start_walkthrough: "Start a walkthrough", add_walkthrough_point: "Add a walkthrough point", answer_walkthrough_question: "Answer in the walkthrough",
   };
 
   function tool<S extends z.ZodRawShape>(
@@ -851,13 +949,21 @@ export function createServer() {
         }
         if (opts.preview) {
           const out: Record<string, any> = { ...(result as Record<string, unknown>), account: usedAccount };
-          const text = opts.preview === "show" ? previewSummary(out.preview, out.edits.length) : "ok";
+          const text = opts.preview !== "show" ? "ok" : out.walkthrough ? walkthroughStarted(out.walkthrough.title, out.walkthrough.planned) : previewSummary(out.preview, out.edits.length);
           const content = [{ type: "text" as const, text }];
           return { content, structuredContent: out };
         }
         let text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
         if (usedAccount && all.length > 1) text = `[account: ${usedAccount}]\n${text}`;
         const content = [{ type: "text" as const, text }];
+        // The user is stepping through a walkthrough of this sheet: say where, since a question in chat is likely about that point.
+        const walk = sheetId && READS.has(name) ? walkthroughs.get(sheetId) : undefined;
+        if (walk && walk.at !== undefined && walk.points[walk.at] && Date.now() - (walk.atAt ?? 0) < WALK_POSITION_MS) {
+          const p = walk.points[walk.at];
+          content.push({ type: "text" as const, text: `Walkthrough "${walk.title}": the user is on point ${walkLabel(walk, walk.at)} of ${walk.points.filter((x) => !x.q).length}, "${p.title}" (${p.range}).` });
+        }
+        const asked = walk && openQuestion(walk);
+        if (asked && walk) content.push({ type: "text" as const, text: `The user asked this from the walkthrough (point ${walkLabel(walk, asked.point)}): "${asked.text}". Answer it with answer_walkthrough_question so the answer shows there (with steps when it's about several places), then reply in the chat with one short line.` });
         if (sheetId && !UNLOGGED.has(name)) {
           const state = previewsOn ? previewState(sheetId) : "watching";
           if (state !== "watching" && !watchedFromElsewhere(sheetId)) {
@@ -1230,8 +1336,28 @@ export function createServer() {
         .optional()
         .describe("Whether the user can see the preview: in view, scrolled out of view, or in view in a window that's in the background"),
       heartbeat: z.boolean().default(false).describe("Only report `view` (the window is in the background): no steps, no rebuild"),
+      walkthrough: z.boolean().default(false).describe("With `initial`: the view was opened by start_walkthrough, so include its walkthrough"),
+      wt: z.number().int().optional().describe("The walkthrough this view plays: its latest state comes back as `walkthrough`"),
+      wt_at: z.number().int().min(0).optional().describe("The walkthrough point the user is looking at (0-based)"),
+      wt_ask: z.string().max(2000).optional().describe("A question the user typed in the walkthrough about point `wt_at` (the widget also sends it to the chat)"),
     },
-    async ({ spreadsheet, range, highlight, since, initial, peek, stay, showing, view, heartbeat }) => {
+    async (args) => {
+      const id = spreadsheetIdFrom(args.spreadsheet);
+      const w = walkthroughs.get(id);
+      if (w && args.wt === w.id && args.wt_at !== undefined) {
+        w.at = args.wt_at;
+        w.atAt = Date.now();
+        const text = args.wt_ask?.trim();
+        if (text && w.questions.length < 50) w.questions.push({ id: w.questions.length + 1, point: args.wt_at, text, at: Date.now() });
+      }
+      const out: Record<string, any> = await previewUpdate(args);
+      if (w && (args.wt === w.id || (args.initial && args.walkthrough && Date.now() - w.startedAt < WALK_OPEN_MS))) out.walkthrough = await walkInfo(id, w);
+      return out;
+    },
+    { preview: "app" },
+  );
+
+  async function previewUpdate({ spreadsheet, range, highlight, since, initial, peek, stay, showing, view, heartbeat }: { spreadsheet: string; range?: string; highlight?: string; since: number; initial: boolean; peek: boolean; stay: boolean; showing?: string; view?: "on_screen" | "off_screen" | "background"; heartbeat: boolean }) {
       const id = spreadsheetIdFrom(spreadsheet);
       const shown = showing ? spreadsheetIdFrom(showing) : id;
       // What the user can see of this preview. Older widget builds don't say; a first fetch comes with show_range.
@@ -1299,8 +1425,125 @@ export function createServer() {
         return buildPreview(api().sheets, target, { title: sheet.title!, sheetId: sheet.sheetId!, rowCount: sheet.gridProperties?.rowCount }, rect, { keep: union(edited), tabs: await previewTabs(target) });
       });
       return { edits, seq, preview };
+  }
+
+  /** A range Claude names in a walkthrough, checked against the tabs: the range as shown, its tab, and its cells. */
+  async function walkPlace(id: string, range: string) {
+    const parsed = parseA1(range);
+    const sheet = await resolveSheet(id, parsed.sheet);
+    const bounded = parsed.startRow !== undefined && parsed.startCol !== undefined;
+    const rect = bounded ? toRect(range).rect : undefined;
+    return { range: (parsed.sheet === undefined ? quoteSheet(sheet.title!) + "!" : "") + range, tab: sheet.title!, ...(rect && { rect, a1: toA1(undefined, rect.r0, rect.c0, rect.r1, rect.c1) }) };
+  }
+  const shortCallout = (note: string, callout?: string) => {
+    const short = (callout ?? note.trim().split(/(?<=[.!?])\s/)[0] ?? "").trim().replace(/\s+/g, " ");
+    return short.length > 90 ? short.slice(0, 87).trimEnd() + "…" : short;
+  };
+
+  const startWalkthrough = tool(
+    "start_walkthrough",
+    "Explain a spreadsheet to the user as a walkthrough played on the sheet itself. Use it instead of show_range whenever your answer is about specific places in a sheet: explaining a sheet or part of one, walking through it, reviewing it, pointing out problems or failing checks, or preparing questions to ask about it (one point per question, at the cells it's about). " +
+      "Call it FIRST, before reading: a view of the sheet opens with a progress bar that moves as you read. Then read what you need (get_spreadsheet_info, read_range…) and call add_walkthrough_point once per point, in order, with `last` on the final one. " +
+      "The points appear in the user's list as you add them; once the last one lands, the view plays them: it moves Claude's cursor to each range, outlines it, types a short callout next to it, and waits for the user to click Next. " +
+      "Everything is drawn in the view only: nothing is written to the sheet, so collaborators see nothing.",
+    {
+      spreadsheet,
+      title: z.string().describe("What the walkthrough explains, as a short heading, e.g. \"How the Dashboard works\""),
+      points: z.number().int().min(1).max(10).default(5).describe("How many points you expect to make (3 to 7 reads best). An estimate is fine; it sets the progress bar"),
+      range: z.string().optional().describe("Where to open the view while you read, e.g. \"Dashboard!A1:H30\". Default: the first tab"),
     },
-    { preview: "app" },
+    async ({ spreadsheet, title, points, range }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const now = Date.now();
+      const w: Walk = { id: ++walkSeq, title: title.trim().slice(0, 120) || "Walkthrough", planned: points, points: [], done: false, startedAt: now, lastPointAt: now, questions: [] };
+      walkthroughs.set(id, w);
+      const out = await openPreview(id, range);
+      return { ...out, walkthrough: await walkInfo(id, w) };
+    },
+    { preview: "show" },
+  );
+
+  const addWalkthroughPoint = tool(
+    "add_walkthrough_point",
+    "Add the next point to the walkthrough started with start_walkthrough; it appears in the user's list right away. Points play in the order added. " +
+      "Write each point for someone who didn't build the sheet: one idea per point, tied to the cells that show it, in plain words (describe formulas, e.g. \"adds up the weekly rows\", rather than quoting them). " +
+      "Order them the way the sheet flows: inputs, then calculations, then results and what to watch. Set `last` on the final point; the walkthrough then plays.",
+    {
+      spreadsheet,
+      title: z.string().describe("A short heading for the point, e.g. \"Gross margin\""),
+      range: z.string().describe("The cells this point is about, with the tab, e.g. \"Dashboard!C12:C24\" (a whole tab works too)"),
+      note: z.string().describe("The explanation: one to three plain sentences, shown in the walkthrough's list"),
+      callout: z.string().optional().describe("A few words typed next to the cells on the sheet, at most about 60 characters. Default: the note's first sentence"),
+      last: z.boolean().default(false).describe("True on the final point: the walkthrough is complete and starts playing"),
+    },
+    async ({ spreadsheet, title, range, note, callout, last }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const w = walkthroughs.get(id);
+      if (!w || Date.now() - w.startedAt > WALK_OPEN_MS) throw new Error("No walkthrough is open for this spreadsheet. Call start_walkthrough first.");
+      if (w.done) throw new Error("This walkthrough is complete (its last point was added). To explain something else, call start_walkthrough again.");
+      if (w.points.length >= 12) throw new Error("A walkthrough holds at most 12 points. Set `last` on this one, or merge points.");
+      w.points.push({ title: title.trim().slice(0, 80), ...(await walkPlace(id, range)), note: note.trim().slice(0, 700), callout: shortCallout(note, callout) });
+      w.lastPointAt = Date.now();
+      const n = w.points.length;
+      if (last) {
+        w.done = true;
+        w.planned = n;
+        return `Point ${n} added; the walkthrough is complete and is now playing for the user, who steps through it with Next. Nothing was written to the sheet. Keep your reply short (the walkthrough carries the explanation), and offer to go deeper on any point.`;
+      }
+      w.planned = Math.max(w.planned, n + 1);
+      return `Point ${n} of about ${w.planned} added and shown in the user's list. Add the next one (set \`last\` on the final point).`;
+    },
+  );
+
+  const answerWalkthroughQuestion = tool(
+    "answer_walkthrough_question",
+    "Answer a question the user typed in the walkthrough (their chat message starts \"Question about point N of the walkthrough\"). The answer appears in the walkthrough under that point, below their question. " +
+      "Show, don't just tell: when the answer is about cells, point at them. One place: give `range`. Several places (a check that fails, the inputs behind it, where the total lands): give `steps`, one per place in the order to look at them; they're added to the walkthrough right after the point and play at once, the cursor outlining each range with its note, Next moving on, then the walkthrough continues where it was. " +
+      "Read cells first so the numbers are right. Then reply in the chat with one short line (the walkthrough carries the answer). Nothing is written to the sheet.",
+    {
+      spreadsheet,
+      answer: z.string().describe("The answer: plain words, one to four sentences, written for the person asking. With steps, the overall answer; the details go in the steps"),
+      range: z.string().optional().describe("The one range the answer is about, with the tab, e.g. \"Dashboard!C12:C24\": it's outlined on the sheet"),
+      steps: z
+        .array(
+          z.object({
+            title: z.string().describe("Short heading, e.g. \"Payroll check fails\""),
+            range: z.string().describe("The cells, with the tab, e.g. \"Checks!E56:E57\""),
+            note: z.string().describe("What to see there: one to three plain sentences with the actual numbers"),
+            callout: z.string().optional().describe("A few words typed next to the cells (about 60 characters). Default: the note's first sentence"),
+          }),
+        )
+        .max(6)
+        .optional()
+        .describe("When the answer spans several places: one step per place, in the order to look at them (at most 6)"),
+    },
+    async ({ spreadsheet, answer, range, steps }) => {
+      const id = spreadsheetIdFrom(spreadsheet);
+      const w = walkthroughs.get(id);
+      const q = w && openQuestion(w);
+      if (!w || !q) throw new Error("No question from the walkthrough is waiting for an answer. Reply in the chat instead.");
+      let where: Pick<WalkQuestion, "range" | "tab" | "rect"> = {};
+      if (range && !steps?.length) {
+        const { a1: _a1, ...place } = await walkPlace(id, range);
+        where = place;
+      }
+      // Steps go right after the point asked about (after any earlier answer's steps there); later points, the
+      // user's place and other questions move down to make room.
+      const added: WalkPoint[] = [];
+      for (const st of steps ?? []) added.push({ title: st.title.trim().slice(0, 80), ...(await walkPlace(id, st.range)), note: st.note.trim().slice(0, 700), callout: shortCallout(st.note, st.callout), q: q.id });
+      if (added.length) {
+        let at = q.point + 1;
+        while (at < w.points.length && w.points[at].q !== undefined) at++;
+        w.points.splice(at, 0, ...added);
+        for (const other of w.questions) if (other !== q && other.point >= at) other.point += added.length;
+        if (w.at !== undefined && w.at >= at) w.at += added.length;
+        if (w.done) w.planned = w.points.length;
+      }
+      Object.assign(q, { answer: answer.trim().slice(0, 1500), answeredAt: Date.now(), ...where, ...(added.length && { steps: added.length }) });
+      return added.length
+        ? `Answer shown in the walkthrough under point ${walkLabel(w, q.point)}, and its ${added.length} step${added.length === 1 ? "" : "s"} now play on the sheet. Now reply in the chat with one short line, e.g. "Walked through it on the sheet."`
+        : `Answer shown in the walkthrough under point ${walkLabel(w, q.point)}${where.range ? `, with ${where.range} outlined` : ""}. Now reply in the chat with one short line, e.g. "Answered in the walkthrough."`;
+    },
   );
 
   // ----- writing -----
@@ -2123,6 +2366,9 @@ export function createServer() {
     if (!previewsOn) {
       showRange.remove();
       previewUpdates.remove();
+      startWalkthrough.remove();
+      addWalkthroughPoint.remove();
+      answerWalkthroughQuestion.remove();
       showRecent.remove();
       recentUpdate.remove();
     }

@@ -91,6 +91,8 @@ In Claude Desktop, Claude opens a live preview of your sheet in the chat while i
 
 Ask Claude to explain a sheet ("walk me through how this model works") and the preview becomes a walkthrough: a progress bar while Claude reads, then Claude's explanation played on the sheet one point at a time. Claude's cursor outlines the cells for each point and types a short note beside them, and the walkthrough waits for you to click **Next**. Type a question about the point in the walkthrough and Claude answers there, stepping through the cells it's talking about. It's drawn in the preview only, so nothing changes in the sheet and collaborators see nothing.
 
+[![Claude reads a profit model, then walks through it on the sheet: it outlines the cells for each point with a note beside them, and answers a question typed in the walkthrough by stepping through two cells](docs/walkthrough.webp)](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=walkthrough#walkthrough)
+
 After updating Sheets MCP, quit and reopen Claude Desktop so it loads the new preview.
 
 The preview draws in the Claude desktop app. If you follow a session from your phone with Remote Control, Sheets MCP keeps working on your computer and the preview is there when you're back at it.

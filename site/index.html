@@ -71,6 +71,7 @@
   <script src="/counter.js" defer></script>
   <script src="/usecases.js" defer></script>
   <script src="/recent-demo.js" defer></script>
+  <script src="/walkthrough-demo.js" defer></script>
 </head>
 <body>
 <header class="wrap nav">
@@ -202,6 +203,34 @@
           </div>
         </article>
       </div>
+    </div>
+  </section>
+
+  <section id="walkthrough">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Walkthroughs</div>
+        <h2>Ask Claude to explain a sheet. It shows you, on the sheet.</h2>
+        <p>Say “walk me through this model” and Claude plays its explanation in the live preview, one point at a time: its cursor outlines the cells and notes what they do, then waits for you. Nothing is written to the sheet.</p>
+      </div>
+      <div class="rw-demo wt-demo" id="wtDemo" role="img" aria-label="Demo of a walkthrough in a Claude chat: Claude reads a profit model, lists four points, then outlines the cells for each one with a note beside them. The user clicks Next, asks which lever is worth the most, and Claude answers by stepping through two cells on the sheet.">
+        <div class="pane wt-win">
+          <div class="pane-bar"><span class="lights"><i></i><i></i><i></i></span>Claude</div>
+          <div class="wt-msgs">
+            <div class="bubble">Walk me through how the profit options work</div>
+            <div class="asst"><span class="who">Claude</span><p>I'll read the model, then walk you through it on the sheet.</p>
+              <iframe class="rw-frame wt-frame" data-src="/embed/sheet-preview" title="Walkthrough (demo)" tabindex="-1" aria-hidden="true"></iframe>
+            </div>
+          </div>
+        </div>
+        <div class="rw-cursor" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 3l14 8.2-6.3 1.4L9.6 19z" fill="#fff" stroke="#171716" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
+      </div>
+      <ol class="wt-beats">
+        <li><b>Claude reads first</b>A progress bar moves as it reads, and the points appear as Claude writes them.</li>
+        <li><b>Then shows you, point by point</b>Each point outlines its cells with a short note. Click Next (or press →) when you're ready.</li>
+        <li><b>Ask about any point</b>Type a question in the walkthrough. Claude answers there, stepping through the cells it means.</li>
+      </ol>
+      <p class="wt-note">Works for reviews and meeting prep too: “check this model for problems” points at each one. Walkthroughs play in the live preview in Claude Desktop.</p>
     </div>
   </section>
 

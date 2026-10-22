@@ -633,6 +633,22 @@ footer a { text-decoration: none; transition: color 150ms ease; }
 .rw-cursor.press svg { transform: scale(.85); }
 @media (max-width: 900px) { .rw-layout { grid-template-columns: minmax(0, 1fr); gap: 32px; } .rw-win { height: 560px; } }
 
+/* ---------- walkthroughs ---------- */
+/* The real live preview (embed/sheet-preview.html) in a stand-in chat, driven by walkthrough-demo.js. It reuses the rw- cursor and frame. */
+.wt-win { min-height: 520px; }
+.wt-msgs { display: flex; flex-direction: column; gap: 12px; padding: 18px 16px 16px; }
+.wt-frame { height: 470px; transition: opacity 400ms ease; }
+.wt-demo.out .wt-frame { opacity: 0; }
+.wt-beats { list-style: none; margin: 28px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; counter-reset: beat; }
+.wt-beats li { position: relative; padding: 14px 16px 14px 48px; border-radius: 12px; font-size: 14.5px; color: var(--muted); counter-increment: beat; transition: background-color 300ms ease, box-shadow 300ms ease; }
+.wt-beats li::before { content: counter(beat); position: absolute; left: 16px; top: 15px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--muted); box-shadow: inset 0 0 0 1px var(--grid); transition: background-color 300ms ease, color 300ms ease; }
+.wt-beats b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 2px; }
+.wt-beats li.on { background: var(--surface); box-shadow: var(--shadow-sm); }
+.wt-beats li.on::before { color: #fff; background: var(--claude); box-shadow: none; }
+.wt-note { margin: 20px 0 0; font-size: 14px; color: var(--muted); }
+@media (max-width: 860px) { .wt-beats { grid-template-columns: minmax(0, 1fr); gap: 6px; } .wt-msgs { padding: 14px 10px 12px; } }
+@media (prefers-reduced-motion: reduce) { .wt-beats li, .wt-beats li::before, .wt-frame { transition: none; } }
+
 /* ---------- comparison ---------- */
 .section-head p a, .cmp-note a { color: var(--accent); text-underline-offset: 3px; }
 .cmp-wrap { background: var(--surface); border-radius: calc(var(--radius) + 4px); box-shadow: var(--shadow); overflow-x: auto; }

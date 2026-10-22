@@ -87,7 +87,7 @@ td.al-l { text-align: left; } td.al-c { text-align: center; } td.al-r { text-ali
 td.va-t { vertical-align: top; } td.va-m { vertical-align: middle; }
 td.w { white-space: normal; overflow-wrap: anywhere; }
 td .wc { overflow: hidden; }
-td.ovf { overflow: visible; }
+td.ovf { overflow: visible; z-index: 1; }
 td.dv-check { text-align: center; }
 td.err::after { content: ""; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 6px 6px 0; border-color: transparent #d93025 transparent transparent; }
 .cbx { display: inline-block; width: 12px; height: 12px; border: 1.5px solid #5f6368; border-radius: 2px; vertical-align: -2px; box-sizing: border-box; }
@@ -98,8 +98,11 @@ td.err::after { content: ""; position: absolute; top: 0; right: 0; border-style:
 .fbtn { position: absolute; right: 3px; bottom: 3px; width: 13px; height: 13px; border-radius: 2px; background: #fff; display: grid; place-items: center; }
 .fbtn svg { width: 11px; height: 11px; fill: none; stroke: #188038; stroke-width: 1.5; stroke-linecap: round; }
 /* Frozen rows and columns stay put while the rest scrolls, with Sheets' heavier line along their edge. */
-td.fz { position: sticky; z-index: 4; }
+/* Spilling text sits one step above the cells of its layer, whose backgrounds would otherwise hide it. */
+td.fz { position: sticky; z-index: 3; }
+td.fz.ovf { z-index: 4; }
 td.fz.fzb { z-index: 5; }
+td.fz.fzb.ovf { z-index: 6; }
 td.fzr-end, th.fzr-end { box-shadow: inset -1px -1px 0 var(--grid), inset 0 -2px 0 #c2c2c2; }
 td.fzc-end, th.fzc-end { box-shadow: inset -1px -1px 0 var(--grid), inset -2px 0 0 #c2c2c2; }
 td.fzr-end.fzc-end, th.fzr-end.fzc-end { box-shadow: inset -1px -1px 0 var(--grid), inset 0 -2px 0 #c2c2c2, inset -2px 0 0 #c2c2c2; }

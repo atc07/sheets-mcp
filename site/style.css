@@ -111,7 +111,7 @@ h1 { font-size: clamp(40px, 5.4vw, 60px); line-height: 1.04; letter-spacing: -0.
 
 /* ---------- live demo: Claude on the left, the sheet on the right (hero.js) ---------- */
 :root { --claude: #d97757; --claude-soft: rgba(217, 119, 87, 0.12); --term-bg: #1b1a18; --term-fg: #e8e6e1; --term-dim: #8f8c85; }
-/* Two demos under the hero, as tabs: "Change a sheet" (this one) and "Explain a sheet" (the walkthrough, walkthrough-demo.js). */
+/* Two demos under the hero, as tabs: "Explain a sheet" (the walkthrough, walkthrough-demo.js; shown first) and "Build or change a sheet" (this one). */
 .demo-tabs, .surfaces { display: flex; width: fit-content; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface-2); box-shadow: var(--ring); }
 .demo-tabs { margin: 44px auto 18px; }
 .demo-tabs button, .surfaces button { font: 500 14px/1 var(--font); color: var(--muted); background: none; border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease; }
@@ -235,7 +235,8 @@ table.ss { border-collapse: collapse; table-layout: fixed; width: 100%; font-siz
 }
 @media (max-width: 480px) {
   .ss th, .ss td { padding: 0 6px; font-size: 12px; }
-  .demo-tabs button { padding: 9px 12px; }
+  .demo-tabs button { padding: 8px 10px; font-size: 13px; gap: 5px; }
+  .demo-tabs .new { padding: 2px 5px; font-size: 10.5px; }
   .demo-tabs svg { display: none; }
 }
 

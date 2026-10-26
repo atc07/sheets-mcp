@@ -222,6 +222,6 @@
     $(".demo-tabs").scrollIntoView({ block: "start" });
   }
   addEventListener("hashchange", fromHash);
-  play();
+  if (!$("#panelEdit").hidden) play(); // otherwise it starts when its tab is picked
   fromHash();
 })();

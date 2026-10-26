@@ -111,11 +111,20 @@ h1 { font-size: clamp(40px, 5.4vw, 60px); line-height: 1.04; letter-spacing: -0.
 
 /* ---------- live demo: Claude on the left, the sheet on the right (hero.js) ---------- */
 :root { --claude: #d97757; --claude-soft: rgba(217, 119, 87, 0.12); --term-bg: #1b1a18; --term-fg: #e8e6e1; --term-dim: #8f8c85; }
-.surfaces { display: flex; width: fit-content; gap: 4px; padding: 4px; margin: 44px auto 18px; border-radius: 999px; background: var(--surface-2); box-shadow: var(--ring); }
-.surfaces button { font: 500 14px/1 var(--font); color: var(--muted); background: none; border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease; }
-.surfaces button[aria-pressed="true"] { color: var(--fg); background: var(--surface); box-shadow: var(--shadow-sm); }
-.surfaces button:focus-visible, .replay:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.surfaces svg { width: 15px; height: 15px; }
+/* Two demos under the hero, as tabs: "Change a sheet" (this one) and "Explain a sheet" (the walkthrough, walkthrough-demo.js). */
+.demo-tabs, .surfaces { display: flex; width: fit-content; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface-2); box-shadow: var(--ring); }
+.demo-tabs { margin: 44px auto 18px; }
+.demo-tabs button, .surfaces button { font: 500 14px/1 var(--font); color: var(--muted); background: none; border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease; }
+.demo-tabs button[aria-selected="true"], .surfaces button[aria-pressed="true"] { color: var(--fg); background: var(--surface); box-shadow: var(--shadow-sm); }
+.demo-tabs button:focus-visible, .surfaces button:focus-visible, .replay:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.demo-tabs svg, .surfaces svg { width: 15px; height: 15px; }
+.demo-tabs .new { margin-left: 1px; padding: 3px 6px; border-radius: 999px; background: var(--claude-soft); color: var(--claude); font-size: 11px; font-weight: 600; }
+/* The Claude Desktop / Claude Code switch, under the edit demo. */
+.surfaces.sm { padding: 3px; }
+.surfaces.sm button { font-size: 12.5px; padding: 6px 11px; gap: 6px; }
+.surfaces.sm svg { width: 13px; height: 13px; }
+.demo-panel[hidden] { display: none; }
+#walkthrough { text-align: left; }
 
 .split { display: grid; grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr); gap: 16px; height: 500px; margin: 0; text-align: left; }
 .pane { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
@@ -226,7 +235,8 @@ table.ss { border-collapse: collapse; table-layout: fixed; width: 100%; font-siz
 }
 @media (max-width: 480px) {
   .ss th, .ss td { padding: 0 6px; font-size: 12px; }
-  .surfaces button { padding: 9px 12px; }
+  .demo-tabs button { padding: 9px 12px; }
+  .demo-tabs svg { display: none; }
 }
 
 /* ---------- sections ---------- */

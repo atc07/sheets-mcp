@@ -192,5 +192,36 @@
     cursor.classList.remove("on");
     if (chart.classList.contains("on")) placeChart();
   });
+
+  // ---------- the two demos, as tabs: this one, and the walkthrough (walkthrough-demo.js plays it while it's shown) ----------
+  const tabs = [...document.querySelectorAll(".demo-tabs [role=tab]")];
+  function pick(tab, focus) {
+    const was = tabs.find((t) => t.getAttribute("aria-selected") === "true");
+    tabs.forEach((t) => {
+      t.setAttribute("aria-selected", String(t === tab));
+      t.tabIndex = t === tab ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = t !== tab;
+    });
+    if (focus) tab.focus();
+    if (tab !== was && tab.id === "tabEdit") play(); // back to this demo: start it over
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => {
+      pick(t);
+      if (typeof gtag === "function") gtag("event", "demo_tab", { tab: t.id === "tabExplain" ? "explain" : "change" });
+    });
+    t.addEventListener("keydown", (e) => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      if (step) { e.preventDefault(); pick(tabs[(i + step + tabs.length) % tabs.length], true); }
+    });
+  });
+  // Links to /#walkthrough (the README, the changelog) open the walkthrough tab.
+  function fromHash() {
+    if (location.hash !== "#walkthrough") return;
+    pick($("#tabExplain"));
+    $(".demo-tabs").scrollIntoView({ block: "start" });
+  }
+  addEventListener("hashchange", fromHash);
   play();
+  fromHash();
 })();

@@ -43,6 +43,8 @@ const PAGE = /* html */ `<!doctype html>
   const say = (s) => { log.textContent = new Date().toISOString().slice(11, 23) + "  " + s + "\\n" + log.textContent; };
   const mode = new URLSearchParams(location.search).get("s");
   let dark = false, burst = false, copy = mode === "copy", walk = mode === "walk";
+  // ?short=1: a five-row range, as when Claude walks through one block of a sheet (the panel must not shrink with it).
+  const short = new URLSearchParams(location.search).has("short");
   document.getElementById("copy").checked = copy;
   document.getElementById("walk").checked = walk;
 
@@ -63,10 +65,11 @@ const PAGE = /* html */ `<!doctype html>
     for (const [id, name, lever, start, fy, cash, diff] of opts) rows.push(["", { v: id, fg: "#666666", al: "c" }, name, { v: lever, fg: "#0000ff", bg: "#fff2cc", al: "r" }, { v: start, al: "c" }, { v: "1", fg: "#0000ff", bg: "#fff2cc", al: "c" }, { v: "1", fg: "#0000ff", bg: "#fff2cc", al: "c" }, money(fy), money(cash), { v: diff, al: "c" }]);
     rows.push(["", "", { v: "Selected options", b: true }, "", "", "", "", { ...money(7225295), b: true }, { ...money(7369655), b: true }, ""]);
     for (let r = 0; r < 6; r++) rows.push(["", "", "", "", "", "", "", "", "", ""]);
+    if (short) rows.length = 5;
     return {
       spreadsheet_id: "demo", title: "Compass Model V1", tab: "Profit Options", url: "https://docs.google.com/", window: "'Profit Options'!A1:J100",
       start_row: 0, start_col: 0, col_widths: [16, 40, 240, 90, 70, 110, 100, 110, 110, 80], row_heights: rows.map(() => 21),
-      rows, hide_gridlines: true, frozen_rows: 3, frozen_cols: 3, tabs: TABS,
+      rows, hide_gridlines: true, frozen_rows: 3, frozen_cols: 3, tabs: TABS, ...(short && { more_below: true }),
     };
   }
   function inputs() {

@@ -195,9 +195,14 @@ td.typed { animation: typed 320ms var(--ease) both; }
 /* ---------- walkthrough: the sheet on the left, the points on the right ---------- */
 .card.wt { container: card / inline-size; }
 .card.wt .live, .card.wt .foot > .step, .card.wt .foot > .count, .card.wt .foot > .btn:not(.wtb) { display: none; }
-.split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 380px; }
-.split > .main { min-width: 0; }
-/* The panel takes the sheet's height (its list scrolls), so a long list doesn't stretch the card. */
+/* (.body > .split: the generic .body > div rule zeroes min-height, and it must not win here.) */
+.body > .split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 480px; }
+/* The sheet fills the split's height (a short range leaves white below its rows, tabs stay at the bottom). */
+.split > .main { min-width: 0; display: flex; flex-direction: column; }
+.split > .main > .scroll { flex: 1; min-height: 0; }
+.split > .main > .fbar, .split > .main > .tabs { flex: none; }
+/* The panel takes that height (its list scrolls), so a long list doesn't stretch the card: the current point and
+   about three more show before the list scrolls. */
 .wtp { position: relative; min-width: 0; box-shadow: inset 1px 0 0 var(--grid); }
 .wtin { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .wth { flex: none; padding: 12px 14px 11px 15px; box-shadow: inset 0 -1px 0 var(--grid); }
@@ -266,7 +271,7 @@ td.typed { animation: typed 320ms var(--ease) both; }
 @keyframes blink { 50% { opacity: 0; } }
 /* Narrow: the panel goes above the sheet and shows only the point that matters now. */
 @container card (max-width: 700px) {
-  .split { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .body > .split { grid-template-columns: minmax(0, 1fr); min-height: 0; }
   .wtp { order: -1; box-shadow: inset 0 -1px 0 var(--grid); }
   .wtin { position: static; }
   .wtl { padding: 4px 8px 8px; }

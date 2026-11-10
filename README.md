@@ -1,5 +1,7 @@
 # Sheets MCP
 
+[![mcp.market](https://mcp.market/badge/atc07-sheets-mcp.svg)](https://mcp.market/server/atc07-sheets-mcp)
+
 The power tool for Google Sheets in Claude. A free, open-source MCP server that connects your spreadsheets to everything Claude Desktop and Claude Code can do: pull data from APIs and files into a sheet, build new sheets from your other sheets, keep them updated on a schedule, and work across several Google accounts. Formulas, formatting, charts and pivot tables included, with undo and formula-error checks on every write. It runs on your computer and talks to Google directly.
 
 **[See all features and watch the demo at sheetsmcp.io →](https://sheetsmcp.io/?utm_source=github&utm_medium=readme&utm_campaign=top)**
